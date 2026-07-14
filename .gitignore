@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.pyc
+.DS_Store
+tests/
+.pytest_cache
+requirements-dev.txt
