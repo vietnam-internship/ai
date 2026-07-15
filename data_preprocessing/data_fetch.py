@@ -29,7 +29,6 @@ def get_engine(port_num:str = "3306") -> Engine:
 def fetch_exchange_rate_timeseries(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    source: Optional[str] = None,
     cur_unit: Optional[str] = None,
     engine: Optional[Engine] = None,
 ) -> pd.DataFrame:
@@ -39,32 +38,29 @@ def fetch_exchange_rate_timeseries(
     params: dict = {}
 
     if start_date:
-        conditions.append("date >= :start_date")
+        conditions.append("erh.recorded_at >= :start_date")
         params["start_date"] = start_date
     if end_date:
-        conditions.append("date <= :end_date")
+        conditions.append("erh.recorded_at <= :end_date")
         params["end_date"] = end_date
-    if source:
-        conditions.append("source = :source")
-        params["source"] = source
     # 특정 통화의 환율만 조회
     if cur_unit:
-        conditions.append("cur_unit = :cur_unit")
+        conditions.append("c.code = :cur_unit")
         params["cur_unit"] = cur_unit
 
-    
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
     query = text(
         f"""
-        SELECT date, source, cur_unit, rate
-        FROM exchange_rate
+        SELECT erh.recorded_at AS date, c.code AS cur_unit, erh.rate AS rate
+        FROM exchange_rate_history erh
+        JOIN currency c ON c.id = erh.currency_id
         {where_clause}
-        ORDER BY date ASC
+        ORDER BY erh.recorded_at ASC
         """
     )
 
     with engine.connect() as conn:
         df = pd.read_sql(query, conn, params=params, parse_dates=["date"])
 
-    return df
+    return df[["date", "cur_unit", "rate"]]

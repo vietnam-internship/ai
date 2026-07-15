@@ -15,7 +15,7 @@ def calculate_moving_average(
 
     ma_col = f"{column}_ma{window}"
     ma_groups = []
-    for _, group in df.groupby(["source", "cur_unit"], sort=False):
+    for _, group in df.groupby("cur_unit", sort=False):
         group = group.sort_values("date").copy()
         group[ma_col] = group[column].rolling(window, min_periods=min_periods).mean()
         ma_groups.append(group)
@@ -23,7 +23,7 @@ def calculate_moving_average(
     result = pd.concat(ma_groups)
     return result.sort_index()
 
-#여러 이동평균 계신 
+#여러 이동평균 계산
 def calculate_moving_averages(
     df: pd.DataFrame,
     windows: Iterable[int] = (5, 20, 60),
@@ -38,7 +38,7 @@ def calculate_moving_averages(
 
 def calculate_moving_std(
     df: pd.DataFrame,
-    window: int = 20,
+    window: int = 30,
     column: str = "rate",
     min_periods: Optional[int] = None,
 ) -> pd.DataFrame:
@@ -48,7 +48,7 @@ def calculate_moving_std(
 
     std_col = f"{column}_std{window}"
     std_groups = []
-    for _, group in df.groupby(["source", "cur_unit"], sort=False):
+    for _, group in df.groupby("cur_unit", sort=False):
         group = group.sort_values("date").copy()
         group[std_col] = group[column].rolling(window, min_periods=min_periods).std()
         std_groups.append(group)
@@ -63,7 +63,6 @@ def calculate_moving_stds(
     column: str = "rate",
     min_periods: Optional[int] = None,
 ) -> pd.DataFrame:
-    """여러 윈도우의 이동표준편차를 한 번에 계산해 컬럼들로 추가한다."""
     for window in windows:
         df = calculate_moving_std(df, window=window, column=column, min_periods=min_periods)
     return df
@@ -72,7 +71,6 @@ def calculate_moving_stds(
 def fetch_and_calculate_features(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    source: Optional[str] = None,
     cur_unit: Optional[str] = None,
     windows: Iterable[int] = (5, 20, 60),
     column: str = "rate",
@@ -82,7 +80,6 @@ def fetch_and_calculate_features(
     df = fetch_and_fill_exchange_rate_timeseries(
         start_date=start_date,
         end_date=end_date,
-        source=source,
         cur_unit=cur_unit,
     )
     df = calculate_moving_averages(df, windows=windows, column=column, min_periods=min_periods)

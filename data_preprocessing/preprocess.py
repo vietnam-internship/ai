@@ -12,10 +12,10 @@ def remove_invalid_rates(df: pd.DataFrame, min_rate: float = 0) -> pd.DataFrame:
     valid = df["rate"].notna() & (df["rate"] > min_rate)
     return df.loc[valid].reset_index(drop=True)
 
-#window 몇일로 할 지 고민..
+
 def remove_rate_outliers(
     df: pd.DataFrame,
-    window: int = 20,
+    window: int = 30,
     threshold: float = 3.0,
     min_periods: int = 5,
 ) -> pd.DataFrame:
@@ -24,7 +24,7 @@ def remove_rate_outliers(
         return df
 
     keep_masks = []
-    for _, group in df.groupby(["source", "cur_unit"], sort=False):
+    for _, group in df.groupby("cur_unit", sort=False):
         group = group.sort_values("date")
         rate = group["rate"]
 
@@ -45,7 +45,7 @@ def remove_rate_outliers(
 def validate_exchange_rates(
     df: pd.DataFrame,
     min_rate: float = 0,
-    window: int = 20,
+    window: int = 30,
     threshold: float = 3.0,
     min_periods: int = 5,
 ) -> pd.DataFrame:
@@ -59,33 +59,30 @@ def fill_missing_dates(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     filled_groups = []
-    for (source, cur_unit), group in df.groupby(["source", "cur_unit"], sort=False):
+    for cur_unit, group in df.groupby("cur_unit", sort=False):
         group = group.set_index("date").sort_index()
         full_range = pd.date_range(group.index.min(), group.index.max(), freq="D")
         group = group.reindex(full_range)
-        
+
         #ffill() -> forward fill
         group["rate"] = group["rate"].ffill()
-        group["source"] = source
         group["cur_unit"] = cur_unit
         group.index.name = "date"
         filled_groups.append(group.reset_index())
 
     result = pd.concat(filled_groups, ignore_index=True)
-    return result.sort_values(["source", "cur_unit", "date"]).reset_index(drop=True)
+    return result.sort_values(["cur_unit", "date"]).reset_index(drop=True)
 
 
 def fetch_and_fill_exchange_rate_timeseries(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    source: Optional[str] = None,
     cur_unit: Optional[str] = None,
 ) -> pd.DataFrame:
 
     df = fetch_exchange_rate_timeseries(
         start_date=start_date,
         end_date=end_date,
-        source=source,
         cur_unit=cur_unit,
     )
     df = validate_exchange_rates(df)
