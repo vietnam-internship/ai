@@ -19,7 +19,7 @@ def build_model_dataset(
 
     target_col = f"{target_column}_target"
     shifted_groups = []
-    for _, group in df.groupby("cur_unit", sort=False):
+    for _, group in df.groupby(["cur_unit"], sort=False):
         group = group.sort_values("date").copy()
         group[target_col] = group[target_column].shift(-horizon)
         shifted_groups.append(group)

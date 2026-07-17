@@ -2,4 +2,4 @@ pandas
 sqlalchemy
 pymysql
 python-dotenv
-requests
+scikit-learn

@@ -1,9 +1,9 @@
 import numpy as np
 from typing import Optional
 import pandas as pd
-from data_fetch import fetch_exchange_rate_timeseries
+from data_preprocessing.data_fetch import fetch_currency, preprocess_all_currency
 
-#NaN이 아니거나, min_rate보다 큰 환율만 남김
+#NaN이 아니거나, min_rate보다 작은 환율은 거른다. 
 def remove_invalid_rates(df: pd.DataFrame, min_rate: float = 0) -> pd.DataFrame:
     
     if df.empty:
@@ -11,7 +11,6 @@ def remove_invalid_rates(df: pd.DataFrame, min_rate: float = 0) -> pd.DataFrame:
 
     valid = df["rate"].notna() & (df["rate"] > min_rate)
     return df.loc[valid].reset_index(drop=True)
-
 
 def remove_rate_outliers(
     df: pd.DataFrame,
@@ -31,10 +30,8 @@ def remove_rate_outliers(
         rmedian = rate.rolling(window, min_periods=min_periods, center=True).median()
         mad = (rate - rmedian).abs().rolling(window, min_periods=min_periods, center=True).median()
 
-        # MAD -> 표준편차 근사 스케일 상수(정규분포 가정)
         modified_z = 0.6745 * (rate - rmedian) / mad.replace(0, pd.NA)
 
-        # NaN <= threshold는 False로 평가되어 버리므로, isna()를 먼저 확인해야 함
         keep = modified_z.isna() | (modified_z.abs() <= threshold)
         keep_masks.append(keep)
 
@@ -45,7 +42,7 @@ def remove_rate_outliers(
 def validate_exchange_rates(
     df: pd.DataFrame,
     min_rate: float = 0,
-    window: int = 30,
+    window: int = 20,
     threshold: float = 3.0,
     min_periods: int = 5,
 ) -> pd.DataFrame:
@@ -80,10 +77,29 @@ def fetch_and_fill_exchange_rate_timeseries(
     cur_unit: Optional[str] = None,
 ) -> pd.DataFrame:
 
-    df = fetch_exchange_rate_timeseries(
+    history_by_currency_id = preprocess_all_currency(
         start_date=start_date,
         end_date=end_date,
-        cur_unit=cur_unit,
     )
+    currencies_df = fetch_currency()
+    code_by_id = dict(zip(currencies_df["id"], currencies_df["code"]))
+
+    frames = []
+    for currency_id, history_df in history_by_currency_id.items():
+        if history_df.empty:
+            continue
+        frame = history_df.rename(columns={"recorded_at": "date"})
+        frame["cur_unit"] = code_by_id.get(currency_id, currency_id)
+        frames.append(frame[["date", "cur_unit", "rate"]])
+
+    df = (
+        pd.concat(frames, ignore_index=True)
+        if frames
+        else pd.DataFrame(columns=["date", "cur_unit", "rate"])
+    )
+
+    if cur_unit:
+        df = df[df["cur_unit"] == cur_unit].reset_index(drop=True)
+
     df = validate_exchange_rates(df)
     return fill_missing_dates(df)
