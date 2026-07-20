@@ -13,13 +13,13 @@ def build_model_dataset(
 
     if feature_columns is None:
         feature_columns = [
-            c for c in df.columns if c not in ("date", "source", "cur_unit", target_column)
+            c for c in df.columns if c not in ("date", "cur_unit", target_column)
         ]
     feature_columns = list(feature_columns)
 
     target_col = f"{target_column}_target"
     shifted_groups = []
-    for _, group in df.groupby(["source", "cur_unit"], sort=False):
+    for _, group in df.groupby(["cur_unit"], sort=False):
         group = group.sort_values("date").copy()
         group[target_col] = group[target_column].shift(-horizon)
         shifted_groups.append(group)

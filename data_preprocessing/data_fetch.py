@@ -1,4 +1,5 @@
 import os
+from datetime import date
 from typing import Optional
 
 import pandas as pd
@@ -25,46 +26,70 @@ def get_engine(port_num:str = "3306") -> Engine:
         _engine = create_engine(url, pool_pre_ping=True)
     return _engine
 
+def fetch_currency(engine:Optional[Engine]=None) ->list[int]:
+    engine = engine or get_engine()
+    
+    query = text(
+        f"""SELECT id, code, country, buy_rate, sell_rate, updated_at
+            FROM currency"""
+    )
+    with engine.connect() as conn:
+        df = pd.read_sql(query, conn, parse_dates=["updated_at"])
+    
+    return df
 
-def fetch_exchange_rate_timeseries(
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    source: Optional[str] = None,
-    cur_unit: Optional[str] = None,
-    engine: Optional[Engine] = None,
-) -> pd.DataFrame:
+def fetch_exchange_rate_history(
+    currency_id:int,
+    start_date:Optional[str]=None,
+    end_date:Optional[str]=None,
+    engine:Optional[Engine]=None,
+    ) -> pd.DataFrame:
+    
     engine = engine or get_engine()
 
-    conditions = []
-    params: dict = {}
+    if end_date is None:
+        end_date = str(date.today())
 
-    if start_date:
-        conditions.append("date >= :start_date")
+    conditions = ["currency_id = :currency_id", "recorded_at <= :end_date"]
+    params = {"currency_id": currency_id, "end_date": end_date}
+    if start_date is not None:
+        conditions.append("recorded_at >= :start_date")
         params["start_date"] = start_date
-    if end_date:
-        conditions.append("date <= :end_date")
-        params["end_date"] = end_date
-    if source:
-        conditions.append("source = :source")
-        params["source"] = source
-    # 특정 통화의 환율만 조회
-    if cur_unit:
-        conditions.append("cur_unit = :cur_unit")
-        params["cur_unit"] = cur_unit
 
-    
-    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-
-    query = text(
-        f"""
-        SELECT date, source, cur_unit, rate
-        FROM exchange_rate
-        {where_clause}
-        ORDER BY date ASC
-        """
-    )
+    query = text(f"""
+        SELECT id, currency_id, rate, recorded_at
+        FROM exchange_rate_history
+        WHERE {" AND ".join(conditions)}
+        ORDER BY recorded_at ASC
+    """)
 
     with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params=params, parse_dates=["date"])
+        df = pd.read_sql(
+            query, conn,
+            params=params,
+            parse_dates=["recorded_at"],
+        )
 
     return df
+
+def preprocess_all_currency(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    engine: Optional[Engine] = None,
+) -> dict[int, pd.DataFrame]:
+    engine = engine or get_engine()
+
+    currencies_df = fetch_currency(engine=engine)
+    results = {}
+
+    for _, row in currencies_df.iterrows():
+        currency_id = row["id"]
+        history_df = fetch_exchange_rate_history(
+            currency_id=currency_id,
+            start_date=start_date,
+            end_date=end_date,
+            engine=engine,
+        )
+        results[currency_id] = history_df
+
+    return results
