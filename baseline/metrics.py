@@ -1,5 +1,5 @@
-from data_preprocessing.preprocess import fetch_and_fill_exchange_rate_timeseries
-from baseline import build_baseline_dataset
+from ai.data_preprocessing.preprocess import fetch_and_fill_exchange_rate_timeseries
+from ai.baseline.baseline import build_baseline_dataset
 
 
 def load_actual_and_predicted():
