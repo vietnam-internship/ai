@@ -19,9 +19,9 @@ from api.schemas import (
 from model.lr_model import WINDOW
 
 _DIRECTION_TO_RECOMMENDATION = {
-    "UP": RecommendationEnum.INCREASING,
-    "DOWN": RecommendationEnum.DECREASING,
-    "FLAT": RecommendationEnum.NEUTRAL,
+    "INCREASING": RecommendationEnum.INCREASING,
+    "DECREASING": RecommendationEnum.DECREASING,
+    "NEUTRAL": RecommendationEnum.NEUTRAL,
 }
 
 
