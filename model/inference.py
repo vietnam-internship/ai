@@ -1,6 +1,6 @@
 #학습된 LR 모델을 실제 서비스(live inference)에서 쓰기 위한 인터페이스.
 #save_model/load_model로 재학습 없이 모델을 재사용하고, predict_latest로 가장 최근 시점 기준
-#통화별 예측(diff, 예측 환율, UP/DOWN 방향, 근거 feature인 이동평균/표준편차)을 만든다.
+#통화별 예측(diff, 예측 환율, INCREASING/DECREASI 방향, 근거 feature인 이동평균/표준편차)을 만든다.
 #model을 안 넘기면 baseline(30일 이동평균)으로 대체한다.
 from typing import Iterable, Optional
 
@@ -64,8 +64,8 @@ def predict_latest(
     result["predicted_rate"] = result["current_rate"] + result["predicted_diff"]
     result["direction"] = np.select(
         [result["predicted_rate"] > result["current_rate"], result["predicted_rate"] < result["current_rate"]],
-        ["UP", "DOWN"],
-        default="FLAT",
+        ["INCREASING","DECREASING"],
+        default="NEUTRAL",
     )
     result["source"] = source
     result.index.name = "cur_unit"
