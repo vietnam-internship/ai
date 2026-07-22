@@ -1,0 +1,4 @@
+-r ../data_preprocessing/requirements.txt
+scikit-learn
+numpy
+joblib
