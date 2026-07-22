@@ -1,6 +1,9 @@
 from typing import Iterable, Optional
 import pandas as pd
-from data_preprocessing.preprocess import fetch_and_fill_exchange_rate_timeseries
+from data_preprocessing.preprocess import (
+    DEFAULT_LOOKBACK_DAYS,
+    fetch_and_fill_exchange_rate_timeseries,
+)
 
 #한 개의 윈도우 크기에 대해서 이동평균 계산
 def calculate_moving_average(
@@ -107,12 +110,14 @@ def fetch_and_calculate_features(
     lags: Iterable[int] = (1, 2, 3),
     column: str = "rate",
     min_periods: Optional[int] = None,
+    lookback_days: Optional[int] = DEFAULT_LOOKBACK_DAYS,
 ) -> pd.DataFrame:
     """data_fetch -> preprocess를 거친 데이터에 이동평균/이동표준편차/lag를 추가한다."""
     df = fetch_and_fill_exchange_rate_timeseries(
         start_date=start_date,
         end_date=end_date,
         cur_unit=currency,
+        lookback_days=lookback_days,
     )
     df = calculate_moving_averages(df, windows=windows, column=column, min_periods=min_periods)
     df = calculate_moving_stds(df, windows=windows, column=column, min_periods=min_periods)

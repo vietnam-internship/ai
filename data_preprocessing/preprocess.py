@@ -1,7 +1,13 @@
 import numpy as np
+from datetime import date, timedelta
 from typing import Optional
 import pandas as pd
 from data_preprocessing.data_fetch import fetch_currency, preprocess_all_currency
+
+#lookback_days를 명시하지 않은 호출부를 위한 기본값. 무제한 fetch(DB 전체 이력)를 막기 위한
+#안전장치. 모델이 실제로 필요한 최소 기간(window+train_window+horizon)은 이 값과 무관하게
+#호출하는 쪽(model.lr_model 등)이 자기 요구사항에 맞춰 lookback_days를 직접 넘기면 된다.
+DEFAULT_LOOKBACK_DAYS = 120
 
 #NaN이 아니거나, min_rate보다 작은 환율은 거른다. 
 def remove_invalid_rates(df: pd.DataFrame, min_rate: float = 0) -> pd.DataFrame:
@@ -75,7 +81,12 @@ def fetch_and_fill_exchange_rate_timeseries(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     cur_unit: Optional[str] = None,
+    lookback_days: Optional[int] = DEFAULT_LOOKBACK_DAYS,
 ) -> pd.DataFrame:
+    #start_date를 직접 안 넘겼으면 lookback_days만큼만 최근 데이터를 가져온다.
+    #DB 전체 이력이 필요한 특수 케이스는 lookback_days=None으로 명시적으로 풀어준다.
+    if start_date is None and lookback_days is not None:
+        start_date = str(date.today() - timedelta(days=lookback_days))
 
     history_by_currency_id = preprocess_all_currency(
         start_date=start_date,
