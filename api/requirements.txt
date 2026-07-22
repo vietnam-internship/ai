@@ -1,0 +1,5 @@
+-r ../data_preprocessing/requirements.txt
+-r ../model/requirements.txt
+fastapi
+uvicorn[standard]
+httpx
