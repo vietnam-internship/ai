@@ -4,7 +4,7 @@ import pandas as pd
 from sqlalchemy import bindparam, text
 from sqlalchemy.engine import Engine
 
-from ai.LR.data_preprocessing.data_fetch import get_engine
+from ai.data_preprocessing.data_fetch import get_engine
 
 
 def fetch_branch_candidates(

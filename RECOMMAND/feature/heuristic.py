@@ -5,13 +5,15 @@ import numpy as np
 import pandas as pd
 
 EARTH_RADIUS_KM = 6371.0
-DISTANCE_DECAY_TAU_KM = 5.0  
-RESERVATION_STOCK_FLOOR = 0.05  
+DISTANCE_DECAY_TAU_KM = 5.0
+RESERVATION_STOCK_FLOOR = 0.05
+DEFAULT_RADIUS_KM = 5.0
+DEFAULT_TOP_N = 10
 
-# 초기 수동 가중치
+# 초기 수동 가중치 (PRD §18: w1=거리, w2=환율, w3=재고, w4=예약)
 DEFAULT_WEIGHTS = {
     "distance": 0.35,
-    "fee": 0.35,
+    "rate": 0.35,
     "availability": 0.2,
     "reservation": 0.1,
 }
@@ -58,7 +60,7 @@ def distance_score(
 
 
 #최종 환율 final_rate = benchmark * (1 - preferential_rate)을 후보군 내 min-max 정규화. 매수는 낮을수록, 매도는 높을수록 유리.
-def fee_score(df: pd.DataFrame, is_buying: bool = True) -> pd.Series:
+def rate_score(df: pd.DataFrame, is_buying: bool = True) -> pd.Series:
     benchmark = df["buy_rate"] if is_buying else df["sell_rate"]
     final_rate = benchmark * (1 - df["preferential_rate"].fillna(0))
     return normalize_min_max(final_rate, higher_is_better=not is_buying)
@@ -69,9 +71,10 @@ def _seconds_since_midnight(series: pd.Series) -> pd.Series:
     return pd.to_timedelta(series.astype(str)).dt.total_seconds()
 
 
-#branch_operating_hours 원본(day_of_week/open_time/close_time/is_closed)에서 현재 영업 여부를 파생시켜 점수화.
+#branch_operating_hours 원본(day_of_week/open_time/close_time/is_closed)에서 현재 영업 여부를 파생.
 #day_of_week는 0(월)~6(일). 해당 지점의 오늘자 행이 없으면 영업 안 함으로 간주.
-def availability_score(
+#표시용(BranchSummary.isOpenNow) 정보이며 total_score 가중합에는 포함되지 않는다.
+def is_open_now(
     df: pd.DataFrame,
     operating_hours_df: pd.DataFrame,
     now: Optional[datetime] = None,
@@ -83,13 +86,19 @@ def availability_score(
 
     todays_hours = operating_hours_df[operating_hours_df["day_of_week"] == current_day].set_index(branch_col)
 
-    is_open_now = (
+    is_open = (
         (~todays_hours["is_closed"].astype(bool))
         & (_seconds_since_midnight(todays_hours["open_time"]) <= current_seconds)
         & (current_seconds < _seconds_since_midnight(todays_hours["close_time"]))
     )
 
-    return df[branch_col].map(is_open_now.astype(float)).fillna(0.0)
+    return df[branch_col].map(is_open.astype(float)).fillna(0.0)
+
+
+#지점의 통화 재고(currency_remaining)를 후보군 내 min-max 정규화. 재고가 많을수록 1에 가깝다.
+#PRD §18 total_score의 w3(재고, ScoreBreakdown.availabilityScore)에 해당.
+def availability_score(df: pd.DataFrame, stock_col: str = "currency_remaining") -> pd.Series:
+    return normalize_min_max(df[stock_col].fillna(0), higher_is_better=True)
 
 
 #예약 전용 재고가 남아있으면 1, 소진되면 RESERVATION_STOCK_FLOOR에 가깝게. 하드 0을 피해 가중합에서 완전히 죽지 않게 한다.
@@ -110,6 +119,8 @@ def score_candidates(
     is_buying: bool = True,
     now: Optional[datetime] = None,
     weights: Optional[dict] = None,
+    radius_km: float = DEFAULT_RADIUS_KM,
+    top_n: Optional[int] = DEFAULT_TOP_N,
 ) -> pd.DataFrame:
     if df.empty:
         return df
@@ -117,15 +128,29 @@ def score_candidates(
     weights = weights or DEFAULT_WEIGHTS
     df = df.copy()
 
-    df["distance_score"] = distance_score(df, user_lat, user_lng)
-    df["fee_score"] = fee_score(df, is_buying=is_buying)
-    df["availability_score"] = availability_score(df, operating_hours_df, now=now)
+    # radius_km 밖 후보는 스코어링 전에 제외 (PRD §18 검색 반경).
+    # 이후 min-max 정규화(rate_score, availability_score)가 이 반경 내 후보군만 대상으로 하도록 필터를 먼저 적용한다.
+    distance_km = calculate_distance_km(df, user_lat, user_lng)
+    df = df[distance_km <= radius_km].copy()
+    if df.empty:
+        return df
+    distance_km = distance_km.loc[df.index]
+
+    df["distance_score"] = np.exp(-distance_km / DISTANCE_DECAY_TAU_KM)
+    df["rate_score"] = rate_score(df, is_buying=is_buying)
+    df["availability_score"] = availability_score(df)
     df["reservation_score"] = reservation_score(df)
+    df["is_open_now"] = is_open_now(df, operating_hours_df, now=now)
 
     df["score"] = (
         weights["distance"] * df["distance_score"]
-        + weights["fee"] * df["fee_score"]
+        + weights["rate"] * df["rate_score"]
         + weights["availability"] * df["availability_score"]
         + weights["reservation"] * df["reservation_score"]
     )
-    return df.sort_values("score", ascending=False).reset_index(drop=True)
+    # total_score 내림차순, 동점 시 distanceScore 우선 (PRD §18: 타이브레이커)
+    df = df.sort_values(
+        ["score", "distance_score"], ascending=[False, False]
+    ).reset_index(drop=True)
+
+    return df.head(top_n) if top_n is not None else df
