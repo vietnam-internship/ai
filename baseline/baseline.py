@@ -1,6 +1,6 @@
 #오늘까지의 평균값을 내일 환율이라고 가정하고, 그게 얼마나 틀렸는지 확인하는 baseline
-from data_preprocessing.feature import calculate_moving_average, calculate_moving_std
-from data_preprocessing.model_input import build_model_dataset
+from ai.data_preprocessing.feature import calculate_moving_average, calculate_moving_std
+from ai.data_preprocessing.model_input import build_model_dataset
 
 def check_row_num(df):
     if len(df)<30:
