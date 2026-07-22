@@ -1,0 +1,306 @@
+openapi: 3.1.0
+info:
+  title: TravelX AI Internal Service
+  description: 환율 타이밍 추천 모델을 학습/서빙하는 내부 전용 서비스. 백엔드가 문서화한 AI Internal 태그(recommendations/signals
+    등)는 이 서비스가 백엔드로 push할 때 호출하는 엔드포인트이고, 여기 정의된 엔드포인트는 이 서비스 자신이 노출하는 API다.
+  version: 0.1.0
+paths:
+  /internal/ai/train:
+    post:
+      tags:
+      - Train
+      summary: 전략 타입별 모델 학습/조회
+      description: "strategyType에 따라 동작이 다르다.\n\n- LINEAR_REGRESSION: currencyCode\
+        \ 필수. LR 모델을 학습하고 baseline보다 우수한 경우에만\n  .joblib로 저장 + manifest 갱신(source:\
+        \ \"lr\"). 그렇지 않으면 아티팩트 없이 스킵 사유만 반환.\n- BASE_LINE: currencyCode 필수. 30일 이동평균\
+        \ 규칙의 MAE/MAPE만 계산해 반환 (저장할 아티팩트 없음).\n- LOGISTIC_REGRESSION: 클릭/전환 로그가 아직\
+        \ 없어 학습 불가. 항상 422 INSUFFICIENT_DATA."
+      operationId: train_internal_ai_train_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrainRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrainResult'
+        '422':
+          description: INSUFFICIENT_DATA — currencyCode 누락, 환율 이력 없음, 또는 LOGISTIC_REGRESSION
+            미지원
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/ai/health:
+    get:
+      tags:
+      - Health
+      summary: 서비스 상태 및 등록된 모델 버전 조회
+      description: 'model/artifacts/manifest.json에 등록된, 전략 타입 x 통화(scope)별 "현재 서빙
+        버전" 목록을 반환한다.
+
+        실제 추론은 수행하지 않는 단순 조회다.'
+      operationId: health_internal_ai_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /internal/ai/currencies/{code}/predict:
+    post:
+      tags:
+      - Predict
+      summary: 타이밍 추천 계산 후 백엔드에 push
+      description: 'code 통화의 환율 이력으로 추천(방향/근거/신뢰도)과 시그널(이동평균/표준편차)을 계산한 뒤,
+
+        백엔드의 AI Internal push 엔드포인트(POST .../recommendations, POST .../signals)로 그대로
+        전달한다.
+
+        등록된 LR 모델이 없으면 baseline(30일 이동평균)으로 자동 폴백해서 서빙한다.'
+      operationId: predict_and_push_internal_ai_currencies__code__predict_post
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Code
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PredictAndPushResponse'
+        '422':
+          description: INSUFFICIENT_DATA — 환율 이력 없음 또는 최소 window/horizon 데이터 부족
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: MODEL_UNAVAILABLE — 추론 중 예기치 못한 실패
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    AiRecommendationCreateRequest:
+      properties:
+        signalIds:
+          items:
+            type: integer
+          type: array
+          title: Signalids
+        recommendation:
+          $ref: '#/components/schemas/RecommendationEnum'
+        rationale:
+          type: string
+          title: Rationale
+        confidenceScore:
+          type: number
+          title: Confidencescore
+        modelVersion:
+          type: string
+          title: Modelversion
+        expiresAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expiresat
+      type: object
+      required:
+      - recommendation
+      - rationale
+      - confidenceScore
+      - modelVersion
+      title: AiRecommendationCreateRequest
+      description: openapi.yaml의 AiRecommendationCreateRequest와 1:1 대응 (그대로 백엔드에 push됨).
+    AiSignalCreateRequest:
+      properties:
+        signalType:
+          $ref: '#/components/schemas/SignalTypeEnum'
+        windowDays:
+          type: integer
+          title: Windowdays
+        value:
+          type: number
+          title: Value
+      type: object
+      required:
+      - signalType
+      - windowDays
+      - value
+      title: AiSignalCreateRequest
+      description: openapi.yaml의 AiSignalCreateRequest와 1:1 대응 (그대로 백엔드에 push됨).
+    BackendPushResult:
+      properties:
+        recommendation:
+          additionalProperties: true
+          type: object
+          title: Recommendation
+        signals:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Signals
+      type: object
+      required:
+      - recommendation
+      - signals
+      title: BackendPushResult
+      description: predict가 백엔드 push 엔드포인트로부터 받은 응답을 그대로 echo한 것 (디버깅용).
+    ErrorResponse:
+      properties:
+        result:
+          type: string
+          title: Result
+          examples:
+          - FAIL
+        code:
+          type: string
+          title: Code
+          examples:
+          - INSUFFICIENT_DATA
+          - MODEL_UNAVAILABLE
+        message:
+          type: string
+          title: Message
+      type: object
+      required:
+      - result
+      - code
+      - message
+      title: ErrorResponse
+      description: api.errors의 커스텀 예외를 main.py 핸들러가 이 형태로 직렬화한다.
+    HealthResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+        models:
+          items:
+            $ref: '#/components/schemas/ModelStatus'
+          type: array
+          title: Models
+      type: object
+      required:
+      - status
+      - models
+      title: HealthResponse
+    ModelStatus:
+      properties:
+        strategyType:
+          type: string
+          title: Strategytype
+        scope:
+          type: string
+          title: Scope
+        version:
+          type: string
+          title: Version
+        updatedAt:
+          type: string
+          title: Updatedat
+      type: object
+      required:
+      - strategyType
+      - scope
+      - version
+      - updatedAt
+      title: ModelStatus
+    PredictAndPushResponse:
+      properties:
+        currencyCode:
+          type: string
+          title: Currencycode
+        recommendation:
+          $ref: '#/components/schemas/AiRecommendationCreateRequest'
+        signals:
+          items:
+            $ref: '#/components/schemas/AiSignalCreateRequest'
+          type: array
+          title: Signals
+        backend:
+          $ref: '#/components/schemas/BackendPushResult'
+      type: object
+      required:
+      - currencyCode
+      - recommendation
+      - signals
+      - backend
+      title: PredictAndPushResponse
+    RecommendationEnum:
+      type: string
+      enum:
+      - INCREASING
+      - NEUTRAL
+      - DECREASING
+      title: RecommendationEnum
+    SignalTypeEnum:
+      type: string
+      enum:
+      - MA
+      - RSI
+      - MACD
+      - STD
+      title: SignalTypeEnum
+    StrategyType:
+      type: string
+      enum:
+      - LINEAR_REGRESSION
+      - BASE_LINE
+      - LOGISTIC_REGRESSION
+      title: StrategyType
+    TrainRequest:
+      properties:
+        strategyType:
+          $ref: '#/components/schemas/StrategyType'
+        currencyCode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Currencycode
+      type: object
+      required:
+      - strategyType
+      title: TrainRequest
+    TrainResult:
+      properties:
+        strategyType:
+          $ref: '#/components/schemas/StrategyType'
+        scope:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scope
+        modelVersion:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Modelversion
+        source:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source
+        metrics:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Metrics
+      type: object
+      required:
+      - strategyType
+      title: TrainResult
