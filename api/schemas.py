@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime, time
 from enum import Enum
 from typing import Optional
 
@@ -88,3 +88,39 @@ class PredictAndPushResponse(BaseModel):
     recommendation: AiRecommendationCreateRequest
     signals: list[AiSignalCreateRequest]
     backend: BackendPushResult
+
+
+class BranchRecommendationRequest(BaseModel):
+    currencyCode: str
+    isBuying: bool = True
+    userLat: float
+    userLng: float
+    slotDate: date
+    slotTime: time
+    radiusKm: Optional[float] = None
+    topN: Optional[int] = None
+
+
+class BranchScoreBreakdown(BaseModel):
+    """RECOMMAND.feature.heuristic.score_candidates가 계산하는 개별 항목 점수 (PRD §18 w1~w4)."""
+
+    distanceScore: float
+    rateScore: float
+    availabilityScore: float
+    reservationScore: float
+
+
+class BranchSummary(BaseModel):
+    branchId: int
+    branchName: str
+    latitude: float
+    longitude: float
+    isOpenNow: bool
+    score: float
+    scoreBreakdown: BranchScoreBreakdown
+
+
+class BranchRecommendationResponse(BaseModel):
+    currencyCode: str
+    weightsSource: str = Field(examples=["logistic_regression", "default"])
+    branches: list[BranchSummary]

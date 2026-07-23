@@ -29,9 +29,9 @@ def _write_manifest(manifest: dict) -> None:
     MANIFEST_PATH.write_text(json.dumps(manifest, indent=2, ensure_ascii=False))
 
 
-def artifact_filename(prefix: str, scope: str, on: Optional[date] = None) -> str:
+def artifact_filename(prefix: str, scope: str, on: Optional[date] = None, ext: str = "joblib") -> str:
     on = on or date.today()
-    return f"{prefix}_{scope}_{on.strftime('%Y%m%d')}.joblib"
+    return f"{prefix}_{scope}_{on.strftime('%Y%m%d')}.{ext}"
 
 
 def save_lr_model(model, scope: str) -> dict:
@@ -64,6 +64,35 @@ def load_lr_model(scope: str):
     if entry is None:
         return None, None
     return load_model(entry["path"]), entry["version"]
+
+
+def save_branch_weights(weights: dict, scope: str = "global") -> dict:
+    """로지스틱 리그레션으로 학습한 지점 추천 가중치(w1~w4)를 .json으로 저장하고
+    manifest의 LOGISTIC_REGRESSION:{scope} 항목을 갱신한다. LR(.joblib)과 달리 통화별이 아니라
+    전역(global) 가중치라 scope 기본값을 "global"로 둔다."""
+    MODEL_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+    filename = artifact_filename("blr", scope, ext="json")
+    path = MODEL_ARTIFACT_DIR / filename
+    path.write_text(json.dumps(weights, indent=2))
+
+    entry = {
+        "version": filename,
+        "path": str(path),
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+    manifest = _read_manifest()
+    manifest[_manifest_key("LOGISTIC_REGRESSION", scope)] = entry
+    _write_manifest(manifest)
+    return entry
+
+
+def load_branch_weights(scope: str = "global") -> Optional[dict]:
+    """등록된 학습 가중치가 있으면 dict({"distance":..,"rate":..,"availability":..,"reservation":..})를,
+    없으면 None을 반환한다. 없을 때 DEFAULT_WEIGHTS로 대체하는 것은 호출부(services.branches)의 책임이다."""
+    entry = _read_manifest().get(_manifest_key("LOGISTIC_REGRESSION", scope))
+    if entry is None:
+        return None
+    return json.loads(Path(entry["path"]).read_text())
 
 
 def list_model_versions() -> list[dict]:

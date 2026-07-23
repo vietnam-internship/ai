@@ -1,8 +1,10 @@
 from fastapi import APIRouter
 
 from api.errors import InsufficientDataError
-from api.model_registry import save_lr_model
+from api.model_registry import save_branch_weights, save_lr_model
 from api.schemas import ErrorResponse, StrategyType, TrainRequest, TrainResult
+
+MIN_BRANCH_FEEDBACK_ROWS = 100  # PRD 협의 전 임시 임계값. 로그 특성 파악되면 조정.
 
 router = APIRouter(prefix="/internal/ai", tags=["Train"])
 
@@ -14,7 +16,10 @@ router = APIRouter(prefix="/internal/ai", tags=["Train"])
     responses={
         422: {
             "model": ErrorResponse,
-            "description": "INSUFFICIENT_DATA — currencyCode 누락, 환율 이력 없음, 또는 LOGISTIC_REGRESSION 미지원",
+            "description": (
+                "INSUFFICIENT_DATA — currencyCode 누락, 환율 이력 없음, 또는 "
+                "LOGISTIC_REGRESSION의 클릭/전환 로그가 최소 건수 미만"
+            ),
         },
     },
 )
@@ -24,17 +29,14 @@ def train(request: TrainRequest) -> TrainResult:
     - LINEAR_REGRESSION: currencyCode 필수. LR 모델을 학습하고 baseline보다 우수한 경우에만
       .joblib로 저장 + manifest 갱신(source: "lr"). 그렇지 않으면 아티팩트 없이 스킵 사유만 반환.
     - BASE_LINE: currencyCode 필수. 30일 이동평균 규칙의 MAE/MAPE만 계산해 반환 (저장할 아티팩트 없음).
-    - LOGISTIC_REGRESSION: 클릭/전환 로그가 아직 없어 학습 불가. 항상 422 INSUFFICIENT_DATA."""
+    - LOGISTIC_REGRESSION: 환전소(지점) 추천 Phase 2. 클릭/전환 로그가 MIN_BRANCH_FEEDBACK_ROWS건
+      이상 쌓이면 로지스틱 리그레션으로 w1~w4 가중치를 학습해 저장. 그 전엔 422 INSUFFICIENT_DATA로
+      Phase 1 룰 기반 고정 가중치를 계속 쓰도록 안내한다."""
     if request.strategyType == StrategyType.LINEAR_REGRESSION:
         return _train_lr(request.currencyCode)
     if request.strategyType == StrategyType.BASE_LINE:
         return _train_baseline(request.currencyCode)
-    # LOGISTIC_REGRESSION: 클릭/전환 로그가 아직 없어 실학습 불가 (infra 이슈 blocker).
-    # Phase 1 룰 기반 고정 가중치를 그대로 쓰도록 안내한다.
-    raise InsufficientDataError(
-        "클릭/전환 로그 데이터가 아직 없어 Logistic Regression을 학습할 수 없습니다. "
-        "Phase 1 룰 기반 가중치를 계속 사용하세요."
-    )
+    return _train_branch_recommendation_weights()
 
 
 def _train_lr(currency_code: str | None) -> TrainResult:
@@ -93,4 +95,38 @@ def _train_baseline(currency_code: str | None) -> TrainResult:
         scope=currency_code,
         source="baseline",
         metrics={"mae": mae, "mape": mape},
+    )
+
+
+def _train_branch_recommendation_weights() -> TrainResult:
+    """지점 추천 Phase 2: branch_recommendation_feedback 로그로 w1~w4(거리/환율/재고/예약)
+    가중치를 로지스틱 리그레션으로 학습한다. 부호가 반대인 계수도 있을 수 있어 절댓값을 취한 뒤
+    합이 1이 되도록 정규화한다 (score_candidates의 가중합 형식과 맞추기 위함)."""
+    import numpy as np
+    from sklearn.linear_model import LogisticRegression
+
+    from RECOMMAND.feature.data_fetch import fetch_branch_recommendation_logs
+
+    logs = fetch_branch_recommendation_logs()
+    if logs.empty or len(logs) < MIN_BRANCH_FEEDBACK_ROWS:
+        raise InsufficientDataError(
+            "클릭/전환 로그 데이터가 아직 충분하지 않아 Logistic Regression을 학습할 수 없습니다 "
+            f"(최소 {MIN_BRANCH_FEEDBACK_ROWS}건 필요). Phase 1 룰 기반 가중치를 계속 사용하세요."
+        )
+
+    feature_cols = ["distance_score", "rate_score", "availability_score", "reservation_score"]
+    clf = LogisticRegression()
+    clf.fit(logs[feature_cols], logs["is_selected"])
+
+    raw_weights = np.abs(clf.coef_[0])
+    normalized = raw_weights / raw_weights.sum()
+    weights = dict(zip(["distance", "rate", "availability", "reservation"], normalized.tolist()))
+
+    entry = save_branch_weights(weights, scope="global")
+    return TrainResult(
+        strategyType=StrategyType.LOGISTIC_REGRESSION,
+        scope="global",
+        modelVersion=entry["version"],
+        source="logistic_regression",
+        metrics={"weights": weights, "trainRows": int(len(logs))},
     )
