@@ -1,6 +1,6 @@
 #학습된 LR 모델을 실제 서비스(live inference)에서 쓰기 위한 인터페이스.
 #save_model/load_model로 재학습 없이 모델을 재사용하고, predict_latest로 가장 최근 시점 기준
-#통화별 예측(diff, 예측 환율, UP/DOWN 방향, 근거 feature인 이동평균/표준편차)을 만든다.
+#통화별 예측(diff, 예측 환율, INCREASING/DECREASING/NEUTRAL 방향, 근거 feature인 이동평균/표준편차)을 만든다.
 #model을 안 넘기면 baseline(30일 이동평균)으로 대체한다.
 from typing import Iterable, Optional
 
@@ -22,8 +22,8 @@ def load_model(path: str) -> LinearRegression:
     return joblib.load(path)
 
 
-#통화별 가장 최근 시점의 환율, 예측 diff, 예측 환율, 방향(UP/DOWN), 이동평균/표준편차를 담은 DataFrame을 만든다.
-#UP: predicted_rate > current_rate, DOWN: predicted_rate < current_rate, 같으면 FLAT
+#통화별 가장 최근 시점의 환율, 예측 diff, 예측 환율, 방향(AiRecommendation.recommendation enum), 이동평균/표준편차를 담은 DataFrame을 만든다.
+#INCREASING: predicted_rate > current_rate, DECREASING: predicted_rate < current_rate, 같으면 NEUTRAL
 #model을 넘기면 LR로, 안 넘기면 baseline(30일 이동평균)으로 예측한다.
 #df를 넘기지 않으면 DB에서 최신 데이터를 가져온다.
 def predict_latest(
@@ -64,8 +64,8 @@ def predict_latest(
     result["predicted_rate"] = result["current_rate"] + result["predicted_diff"]
     result["direction"] = np.select(
         [result["predicted_rate"] > result["current_rate"], result["predicted_rate"] < result["current_rate"]],
-        ["UP", "DOWN"],
-        default="FLAT",
+        ["INCREASING", "DECREASING"],
+        default="NEUTRAL",
     )
     result["source"] = source
     result.index.name = "cur_unit"

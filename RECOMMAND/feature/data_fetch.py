@@ -4,7 +4,7 @@ import pandas as pd
 from sqlalchemy import bindparam, text
 from sqlalchemy.engine import Engine
 
-from ai.data_preprocessing.data_fetch import get_engine
+from data_preprocessing.data_fetch import get_engine
 
 
 def fetch_branch_candidates(
@@ -78,5 +78,23 @@ def fetch_branch_operating_hours(
 
     with engine.connect() as conn:
         df = pd.read_sql(query, conn, params={"branch_ids": list(branch_ids)})
+
+    return df
+
+
+def fetch_branch_recommendation_logs(engine: Optional[Engine] = None) -> pd.DataFrame:
+    """Phase 2(로지스틱 리그레션) 학습용 클릭/전환 로그.
+
+    branches/recommend가 반환한 각 후보(score_candidates의 distance/rate/availability/reservation
+    score)와, 사용자가 실제로 그 지점을 선택(예약/전환)했는지(is_selected)를 백엔드가 기록해둔 테이블."""
+    engine = engine or get_engine()
+
+    query = text("""
+        SELECT distance_score, rate_score, availability_score, reservation_score, is_selected
+        FROM branch_recommendation_feedback
+    """)
+
+    with engine.connect() as conn:
+        df = pd.read_sql(query, conn)
 
     return df
