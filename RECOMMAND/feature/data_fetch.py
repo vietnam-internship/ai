@@ -1,3 +1,4 @@
+import re
 from typing import Optional
 
 import pandas as pd
@@ -6,14 +7,51 @@ from sqlalchemy.engine import Engine
 
 from data_preprocessing.data_fetch import get_engine
 
+#branches.business_hours 자유 텍스트("평일 09:00-18:00, 토 09:00-13:00")를 파싱하는 정규식.
+#BusinessHoursParser.java(백엔드)와 동일한 포맷/토큰만 인식한다.
+_BUSINESS_HOURS_SEGMENT = re.compile(r"(평일|주말|월|화|수|목|금|토|일)\s+(\d{2}:\d{2})-(\d{2}:\d{2})")
+_WEEKDAY_TOKENS: dict[str, list[int]] = {
+    "평일": [0, 1, 2, 3, 4],
+    "주말": [5, 6],
+    "월": [0],
+    "화": [1],
+    "수": [2],
+    "목": [3],
+    "금": [4],
+    "토": [5],
+    "일": [6],
+}
+
+
+def _parse_business_hours(business_hours: Optional[str]) -> dict[int, tuple[str, str]]:
+    """day_of_week(0=월~6=일) -> (open_time, close_time) HH:MM:SS 매핑. 매칭 안 되는 요일은 휴무로 본다."""
+    hours: dict[int, tuple[str, str]] = {}
+    if not business_hours:
+        return hours
+
+    for segment in business_hours.split(","):
+        match = _BUSINESS_HOURS_SEGMENT.match(segment.strip())
+        if not match:
+            continue
+        token, start, end = match.group(1), match.group(2), match.group(3)
+        for day in _WEEKDAY_TOKENS.get(token, []):
+            hours[day] = (f"{start}:00", f"{end}:00")
+    return hours
+
 
 def fetch_branch_candidates(
-    currency_id: int,
+    currency_code: str,
     slot_date: str,
     slot_time: str,
     engine: Optional[Engine] = None,
 ) -> pd.DataFrame:
-    #재고와 예약 가능 정원이 남아있는 지점 후보를 가져온다.
+    """예약 가능 정원이 남아있는 지점 후보를 가져온다.
+
+    주의: 실제 스키마엔 일반 재고(remaining) 컬럼이 없다 (branch_currency_rates엔
+    reservation_only_stock만 존재). availability_score(PRD §18 w3)의 원본 데이터가
+    지금 백엔드 설계엔 없어서, currency_remaining은 0으로 채워 넣는다 — 이 부분은
+    normalize_min_max가 전부 0.5로 처리해서 스코어링이 죽지 않게만 하는 임시 처리이고,
+    실제로 재고 개념을 어떻게 노출할지는 백엔드와 상의가 필요하다."""
     engine = engine or get_engine()
 
     query = text("""
@@ -22,27 +60,26 @@ def fetch_branch_candidates(
             b.name AS branch_name,
             b.latitude,
             b.longitude,
-            bci.preferential_rate,
-            bci.remaining AS currency_remaining,
-            bci.reservation_only_stock,
+            bcr.preferential_rate,
+            0 AS currency_remaining,
+            bcr.reservation_only_stock,
             c.buy_rate,
             c.sell_rate,
             bts.id AS time_slot_id,
-            bts.capacity AS slot_capacity,
+            b.time_slot_capacity AS slot_capacity,
             bts.remaining AS slot_remaining
-        FROM branch b
-        JOIN branch_currency_inventory bci
-            ON bci.branch_id = b.id
-            AND bci.currency_id = :currency_id
-            AND bci.remaining > 0
-        JOIN currency c
-            ON c.id = bci.currency_id
-        JOIN branch_time_slot bts
+        FROM branches b
+        JOIN branch_currency_rates bcr
+            ON bcr.branch_id = b.id
+            AND bcr.currency_code = :currency_code
+        JOIN currencies c
+            ON c.code = bcr.currency_code
+        JOIN branch_time_slots bts
             ON bts.branch_id = b.id
             AND bts.slot_date = :slot_date
-            AND bts.start_time <= :slot_time
-            AND bts.end_time > :slot_time
+            AND bts.slot_time = :slot_time
             AND bts.remaining > 0
+        WHERE b.active = TRUE
     """)
 
     with engine.connect() as conn:
@@ -50,7 +87,7 @@ def fetch_branch_candidates(
             query,
             conn,
             params={
-                "currency_id": currency_id,
+                "currency_code": currency_code,
                 "slot_date": slot_date,
                 "slot_time": slot_time,
             },
@@ -63,35 +100,71 @@ def fetch_branch_operating_hours(
     branch_ids: list[int],
     engine: Optional[Engine] = None,
 ) -> pd.DataFrame:
+    """heuristic.is_open_now가 기대하는 (branch_id, day_of_week, open_time, close_time, is_closed)
+    행 구조를, 실제 스키마의 branches.business_hours 자유 텍스트를 파싱해서 만들어낸다.
+    (실제 백엔드엔 요일별 구조화 테이블 자체가 없다.)"""
     engine = engine or get_engine()
 
-    #is_open 계산을 위한 column
     columns = ["branch_id", "day_of_week", "open_time", "close_time", "is_closed"]
     if not branch_ids:
         return pd.DataFrame(columns=columns)
 
     query = text("""
-        SELECT branch_id, day_of_week, open_time, close_time, is_closed
-        FROM branch_operating_hours
-        WHERE branch_id IN :branch_ids
+        SELECT id AS branch_id, business_hours
+        FROM branches
+        WHERE id IN :branch_ids
     """).bindparams(bindparam("branch_ids", expanding=True))
 
     with engine.connect() as conn:
-        df = pd.read_sql(query, conn, params={"branch_ids": list(branch_ids)})
+        branches_df = pd.read_sql(query, conn, params={"branch_ids": list(branch_ids)})
 
-    return df
+    rows = []
+    for _, row in branches_df.iterrows():
+        parsed = _parse_business_hours(row["business_hours"])
+        for day in range(7):
+            if day in parsed:
+                open_time, close_time = parsed[day]
+                rows.append(
+                    {
+                        "branch_id": row["branch_id"],
+                        "day_of_week": day,
+                        "open_time": open_time,
+                        "close_time": close_time,
+                        "is_closed": False,
+                    }
+                )
+            else:
+                rows.append(
+                    {
+                        "branch_id": row["branch_id"],
+                        "day_of_week": day,
+                        "open_time": "00:00:00",
+                        "close_time": "00:00:00",
+                        "is_closed": True,
+                    }
+                )
+
+    return pd.DataFrame(rows, columns=columns)
 
 
 def fetch_branch_recommendation_logs(engine: Optional[Engine] = None) -> pd.DataFrame:
     """Phase 2(로지스틱 리그레션) 학습용 클릭/전환 로그.
 
-    branches/recommend가 반환한 각 후보(score_candidates의 distance/rate/availability/reservation
-    score)와, 사용자가 실제로 그 지점을 선택(예약/전환)했는지(is_selected)를 백엔드가 기록해둔 테이블."""
+    실제 스키마엔 is_selected 컬럼이 없다 — branch_recommendation_items(추천 세션의 지점별
+    점수 breakdown)에 branch_recommendation_clicks(클릭 이벤트)가 LEFT JOIN으로 존재하는지로
+    선택 여부를 판단한다 (클릭 로그가 있으면 선택된 것)."""
     engine = engine or get_engine()
 
     query = text("""
-        SELECT distance_score, rate_score, availability_score, reservation_score, is_selected
-        FROM branch_recommendation_feedback
+        SELECT
+            i.distance_score,
+            i.rate_score,
+            i.availability_score,
+            i.reservation_score,
+            (c.id IS NOT NULL) AS is_selected
+        FROM branch_recommendation_items i
+        LEFT JOIN branch_recommendation_clicks c
+            ON c.recommendation_item_id = i.id
     """)
 
     with engine.connect() as conn:
