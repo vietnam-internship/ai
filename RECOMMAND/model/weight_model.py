@@ -8,7 +8,7 @@ from sklearn.model_selection import train_test_split
 
 from RECOMMAND.feature.heuristic import DEFAULT_WEIGHTS
 
-FEATURE_COLUMNS = ["distance_score", "rate_score", "availability_score", "reservation_score"]
+FEATURE_COLUMNS = ["distance_score", "rate_score", "reservation_score"]
 TARGET_COLUMN = "is_selected"
 
 MIN_SAMPLES = 50
@@ -37,14 +37,13 @@ def coefficients_to_weights(model: LogisticRegression) -> Optional[dict]:
     if total <= 0:
         return None
 
-    return dict(zip(("distance", "rate", "availability", "reservation"), (coefs / total).tolist()))
+    return dict(zip(("distance", "rate", "reservation"), (coefs / total).tolist()))
 
 
 def weighted_sum_scores(X: pd.DataFrame, weights: dict) -> pd.Series:
     return (
         weights["distance"] * X["distance_score"]
         + weights["rate"] * X["rate_score"]
-        + weights["availability"] * X["availability_score"]
         + weights["reservation"] * X["reservation_score"]
     )
 

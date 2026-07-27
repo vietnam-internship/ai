@@ -48,10 +48,9 @@ def fetch_branch_candidates(
     """예약 가능 정원이 남아있는 지점 후보를 가져온다.
 
     주의: 실제 스키마엔 일반 재고(remaining) 컬럼이 없다 (branch_currency_rates엔
-    reservation_only_stock만 존재). availability_score(PRD §18 w3)의 원본 데이터가
-    지금 백엔드 설계엔 없어서, currency_remaining은 0으로 채워 넣는다 — 이 부분은
-    normalize_min_max가 전부 0.5로 처리해서 스코어링이 죽지 않게만 하는 임시 처리이고,
-    실제로 재고 개념을 어떻게 노출할지는 백엔드와 상의가 필요하다."""
+    reservation_only_stock만 존재). PRD §18의 w3(재고/availability_score)는 원본 데이터가
+    없어 스코어링에서 제외했다 (heuristic.DEFAULT_WEIGHTS 참고, distance/rate/reservation
+    3요소로 재분배)."""
     engine = engine or get_engine()
 
     query = text("""
@@ -61,7 +60,6 @@ def fetch_branch_candidates(
             b.latitude,
             b.longitude,
             bcr.preferential_rate,
-            0 AS currency_remaining,
             bcr.reservation_only_stock,
             c.buy_rate,
             c.sell_rate,
@@ -159,7 +157,6 @@ def fetch_branch_recommendation_logs(engine: Optional[Engine] = None) -> pd.Data
         SELECT
             i.distance_score,
             i.rate_score,
-            i.availability_score,
             i.reservation_score,
             (c.id IS NOT NULL) AS is_selected
         FROM branch_recommendation_items i
