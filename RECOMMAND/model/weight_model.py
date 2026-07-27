@@ -59,13 +59,10 @@ def _classification_metrics(y_true: pd.Series, y_score: pd.Series) -> dict:
     return {"auc": auc, "logLoss": float(log_loss(y_true, clipped))}
 
 
-#Logistic Regression 모델이 baseline(DEFAULT_WEIGHTS 가중합)보다 AUC는 높고 log loss는 낮아야 "더 낫다"고 인정한다.
-#AUC를 판단할 수 없는 경우(단일 클래스 held-out) log loss만으로 비교한다.
 def is_better_than_baseline(lr_metrics: dict, baseline_metrics: dict) -> bool:
-    if lr_metrics["auc"] is not None and baseline_metrics["auc"] is not None:
-        if lr_metrics["auc"] <= baseline_metrics["auc"]:
-            return False
-    return lr_metrics["logLoss"] < baseline_metrics["logLoss"]
+    if lr_metrics["auc"] is None or baseline_metrics["auc"] is None:
+        return False
+    return lr_metrics["auc"] > baseline_metrics["auc"]
 
 
 def train_and_evaluate(X: pd.DataFrame, y: pd.Series) -> dict:
