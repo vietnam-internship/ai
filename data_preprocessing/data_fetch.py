@@ -22,7 +22,7 @@ def get_engine(port_num:str = "3306") -> Engine:
         user = os.environ["DB_USER"]
         password = os.environ["DB_PASSWORD"]
         name = os.environ["DB_NAME"]
-        url = f"mysql+pymysql://{user}:{password}@{host}:{port}/{name}?charset=utf8mb4"
+        url = f"mysql+pymysql://{user}:{password}@{host}:{port}/{name}"
         _engine = create_engine(url, pool_pre_ping=True)
     return _engine
 
@@ -31,7 +31,7 @@ def fetch_currency(engine:Optional[Engine]=None) ->list[int]:
     
     query = text(
         f"""SELECT id, code, country, buy_rate, sell_rate, updated_at
-            FROM currencies"""
+            FROM currency"""
     )
     with engine.connect() as conn:
         df = pd.read_sql(query, conn, parse_dates=["updated_at"])
@@ -58,7 +58,7 @@ def fetch_exchange_rate_history(
 
     query = text(f"""
         SELECT id, currency_id, rate, recorded_at
-        FROM exchange_rate_histories
+        FROM exchange_rate_history
         WHERE {" AND ".join(conditions)}
         ORDER BY recorded_at ASC
     """)
