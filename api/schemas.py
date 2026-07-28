@@ -128,7 +128,7 @@ class RankedBranchItem(BaseModel):
     branchId: int
     ranking: int
     score: float
-    breakdown: ScoreBreakdownPayload
+    breakdown: Optional[ScoreBreakdownPayload] = None
 
 
 class BranchRecommendationPushRequest(BaseModel):
