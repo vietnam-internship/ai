@@ -36,37 +36,45 @@ def run_branch_recommendation(request: BranchRecommendationRequest) -> None:
 
     slot_date, slot_time = _current_slot(datetime.now())
     candidates = fetch_branch_candidates(request.currencyCode, str(slot_date), slot_time)
+    if candidates.empty:
+        # 백엔드 콜백 스펙상 rankedBranches는 최소 1개가 필요하다. 후보가 없으면 콜백을 보내지
+        # 않고 세션을 PENDING으로 남겨, 프론트 폴링이 타임아웃(30초)으로 처리하도록 둔다
+        # (연동 명세서에 문서화된 권장 실패 처리 방식).
+        return
 
-    ranked_items: list[RankedBranchItem] = []
-    if not candidates.empty:
-        operating_hours = fetch_branch_operating_hours(candidates["branch_id"].tolist())
-        learned_weights = load_branch_weights(scope="global")
+    operating_hours = fetch_branch_operating_hours(candidates["branch_id"].tolist())
+    learned_weights = load_branch_weights(scope="global")
 
-        scored = score_candidates(
-            candidates,
-            operating_hours,
-            user_lat=request.latitude,
-            user_lng=request.longitude,
-            # amount은 환전 "희망 금액(외화 기준)" — 즉 KRW로 외화를 사는 시나리오라고 가정.
-            # 요청 스키마에 매수/매도 구분 필드가 없어 is_buying=True로 고정.
-            is_buying=True,
-            weights=learned_weights,
-            radius_km=request.radiusKm,
+    scored = score_candidates(
+        candidates,
+        operating_hours,
+        user_lat=request.latitude,
+        user_lng=request.longitude,
+        # amount은 환전 "희망 금액(외화 기준)" — 즉 KRW로 외화를 사는 시나리오라고 가정.
+        # 요청 스키마에 매수/매도 구분 필드가 없어 is_buying=True로 고정.
+        is_buying=True,
+        weights=learned_weights,
+        radius_km=request.radiusKm,
+    )
+    if scored.empty:
+        # radius_km 밖으로 전부 필터링된 경우 (candidates는 있었지만 반경 내엔 없음) - 동일하게
+        # 콜백 없이 PENDING 타임아웃으로 처리.
+        return
+
+    ranked_items = [
+        RankedBranchItem(
+            branchId=int(row["branch_id"]),
+            ranking=idx + 1,
+            score=float(row["score"]),
+            breakdown=ScoreBreakdownPayload(
+                distanceScore=float(row["distance_score"]),
+                rateScore=float(row["rate_score"]),
+                availabilityScore=float(row["availability_score"]),
+                reservationScore=float(row["reservation_score"]),
+            ),
         )
-        ranked_items = [
-            RankedBranchItem(
-                branchId=int(row["branch_id"]),
-                ranking=idx + 1,
-                score=float(row["score"]),
-                breakdown=ScoreBreakdownPayload(
-                    distanceScore=float(row["distance_score"]),
-                    rateScore=float(row["rate_score"]),
-                    availabilityScore=float(row["availability_score"]),
-                    reservationScore=float(row["reservation_score"]),
-                ),
-            )
-            for idx, row in scored.reset_index(drop=True).iterrows()
-        ]
+        for idx, row in scored.reset_index(drop=True).iterrows()
+    ]
 
     push_branch_recommendation(
         BranchRecommendationPushRequest(sessionId=request.sessionId, rankedBranches=ranked_items)
