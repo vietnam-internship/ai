@@ -122,6 +122,39 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /internal/ai/currencies/{code}/backtest:
+    post:
+      tags:
+      - Backtest
+      summary: LR 모델 walk-forward 백테스트 실행 후 백엔드에 결과 push
+      description: 'DB에 쌓인 실제 환율 이력으로 LR 모델을 walk-forward validation하고, 방향(부호) 일치
+
+        여부를 신호 단위 정확도(totalSignals/correctSignals/accuracyRate)로 환산해 백엔드의
+
+        POST /internal/ai/currencies/{code}/backtests로 push한다.'
+      operationId: backtest_internal_ai_currencies__code__backtest_post
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Code
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Backtest Internal Ai Currencies  Code  Backtest Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AiRecommendationCreateRequest:
@@ -332,6 +365,15 @@ components:
       - message
       title: ErrorResponse
       description: api.errors의 커스텀 예외를 main.py 핸들러가 이 형태로 직렬화한다.
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
     HealthResponse:
       properties:
         status:
@@ -453,3 +495,29 @@ components:
       required:
       - strategyType
       title: TrainResult
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
