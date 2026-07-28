@@ -25,7 +25,7 @@ class SignalTypeEnum(str, Enum):
 
 
 class AiSignalCreateRequest(BaseModel):
-    """openapi.yaml의 AiSignalCreateRequest와 1:1 대응 (그대로 백엔드에 push됨)."""
+    """Matches AiSignalCreateRequest in openapi.yaml 1:1 (pushed to the backend as-is)."""
 
     signalType: SignalTypeEnum
     windowDays: int
@@ -33,7 +33,7 @@ class AiSignalCreateRequest(BaseModel):
 
 
 class AiRecommendationCreateRequest(BaseModel):
-    """openapi.yaml의 AiRecommendationCreateRequest와 1:1 대응 (그대로 백엔드에 push됨)."""
+    """Matches AiRecommendationCreateRequest in openapi.yaml 1:1 (pushed to the backend as-is)."""
 
     signalIds: list[int] = Field(default_factory=list)
     recommendation: RecommendationEnum
@@ -44,7 +44,7 @@ class AiRecommendationCreateRequest(BaseModel):
 
 
 class BacktestCreateRequest(BaseModel):
-    """백엔드 openapi.yaml의 BacktestCreateRequest와 1:1 대응 (그대로 백엔드에 push됨)."""
+    """Matches BacktestCreateRequest in the backend's openapi.yaml 1:1 (pushed to the backend as-is)."""
 
     currencyId: int
     strategyType: StrategyType
@@ -81,7 +81,7 @@ class HealthResponse(BaseModel):
 
 
 class ErrorResponse(BaseModel):
-    """api.errors의 커스텀 예외를 main.py 핸들러가 이 형태로 직렬화한다."""
+    """The shape main.py's handlers serialize api.errors custom exceptions into."""
 
     result: str = Field(examples=["FAIL"])
     code: str = Field(examples=["INSUFFICIENT_DATA", "MODEL_UNAVAILABLE"])
@@ -89,7 +89,7 @@ class ErrorResponse(BaseModel):
 
 
 class BackendPushResult(BaseModel):
-    """predict가 백엔드 push 엔드포인트로부터 받은 응답을 그대로 echo한 것 (디버깅용)."""
+    """Echoes back the response predict got from the backend push endpoints (for debugging)."""
 
     recommendation: dict
     signals: list[dict]
@@ -103,8 +103,9 @@ class PredictAndPushResponse(BaseModel):
 
 
 class BranchRecommendationRequest(BaseModel):
-    """백엔드가 POST /branches/recommendations 접수 직후 AI에 비동기로 보내는 연산 요청.
-    sessionId로 결과 콜백(POST /internal/ai/recommendations/branches)을 매칭한다."""
+    """The async computation request the backend sends to AI right after accepting
+    POST /branches/recommendations. sessionId matches it to the result callback
+    (POST /internal/ai/recommendations/branches)."""
 
     sessionId: int
     latitude: float
@@ -115,7 +116,7 @@ class BranchRecommendationRequest(BaseModel):
 
 
 class ScoreBreakdownPayload(BaseModel):
-    """RECOMMAND.feature.heuristic.score_candidates가 계산하는 개별 항목 점수 (PRD §18 w1~w4)."""
+    """Per-item scores computed by RECOMMAND.feature.heuristic.score_candidates (PRD §18 w1~w4)."""
 
     distanceScore: float
     rateScore: float
@@ -131,7 +132,7 @@ class RankedBranchItem(BaseModel):
 
 
 class BranchRecommendationPushRequest(BaseModel):
-    """백엔드 openapi.yaml의 BranchRecommendationPushRequest와 1:1 대응 (그대로 백엔드에 push됨)."""
+    """Matches BranchRecommendationPushRequest in the backend's openapi.yaml 1:1 (pushed to the backend as-is)."""
 
     sessionId: int
     rankedBranches: list[RankedBranchItem]

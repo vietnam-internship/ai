@@ -26,11 +26,6 @@ _DIRECTION_TO_RECOMMENDATION = {
 
 
 def _confidence_score(current_rate: float, moving_std: float) -> float:
-    """변동성이 클수록 확신도가 낮다는 단순 휴리스틱.
-
-    LR 실패/신뢰도 판정 기준이 아직 협의되지 않아(infra 이슈 체크리스트), 우선
-    "최근 표준편차 / 현재 환율" 비율을 [0, 1]로 clamp해서 쓴다. 협의 결과가 나오면 교체.
-    """
     if current_rate is None or current_rate <= 0 or moving_std is None or np.isnan(moving_std):
         return 0.5
     volatility_ratio = moving_std / current_rate
@@ -45,7 +40,7 @@ def build_timing_recommendation(
 
     df = fetch_and_fill_exchange_rate_timeseries(cur_unit=currency_code)
     if df.empty:
-        raise InsufficientDataError(f"{currency_code} 환율 데이터가 없습니다.")
+        raise InsufficientDataError(f"No exchange rate data for {currency_code}.")
 
     model, model_version = load_lr_model(currency_code)
 
@@ -55,11 +50,11 @@ def build_timing_recommendation(
         # baseline_predict_diff 등이 "데이터가 충분하지 않습니다"를 명시적으로 던지는 경우
         raise InsufficientDataError(str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - 예기치 못한 추론 실패
-        raise ModelUnavailableError(f"예측 실패: {exc}") from exc
+        raise ModelUnavailableError(f"Prediction failed: {exc}") from exc
 
     if currency_code not in result.index:
         # LR 경로에서 최소 window+horizon 데이터가 없으면 예외 없이 빈 결과로 돌아온다.
-        raise InsufficientDataError(f"{currency_code}에 대한 예측 결과가 없습니다.")
+        raise InsufficientDataError(f"No prediction result for {currency_code}.")
 
     row = result.loc[currency_code]
     source = row["source"]

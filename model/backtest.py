@@ -66,7 +66,7 @@ def run_backtest(
             continue
 
     if not rows:
-        raise ValueError("백테스트할 수 있는 통화가 없습니다 (데이터가 충분하지 않습니다).")
+        raise ValueError("No currency available for backtesting (not enough data).")
 
     result = pd.DataFrame.from_dict(rows, orient="index")
     result.index.name = "cur_unit"
