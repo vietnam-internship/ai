@@ -8,7 +8,7 @@ from sklearn.model_selection import train_test_split
 
 from RECOMMAND.feature.heuristic import DEFAULT_WEIGHTS
 
-FEATURE_COLUMNS = ["distance_score", "rate_score", "reservation_score"]
+FEATURE_COLUMNS = ["distance_score", "rate_score", "availability_score", "reservation_score"]
 TARGET_COLUMN = "is_selected"
 
 MIN_SAMPLES = 50
@@ -37,13 +37,14 @@ def coefficients_to_weights(model: LogisticRegression) -> Optional[dict]:
     if total <= 0:
         return None
 
-    return dict(zip(("distance", "rate", "reservation"), (coefs / total).tolist()))
+    return dict(zip(("distance", "rate", "availability", "reservation"), (coefs / total).tolist()))
 
 
 def weighted_sum_scores(X: pd.DataFrame, weights: dict) -> pd.Series:
     return (
         weights["distance"] * X["distance_score"]
         + weights["rate"] * X["rate_score"]
+        + weights["availability"] * X["availability_score"]
         + weights["reservation"] * X["reservation_score"]
     )
 
@@ -58,10 +59,13 @@ def _classification_metrics(y_true: pd.Series, y_score: pd.Series) -> dict:
     return {"auc": auc, "logLoss": float(log_loss(y_true, clipped))}
 
 
+#Logistic Regression 모델이 baseline(DEFAULT_WEIGHTS 가중합)보다 AUC는 높고 log loss는 낮아야 "더 낫다"고 인정한다.
+#AUC를 판단할 수 없는 경우(단일 클래스 held-out) log loss만으로 비교한다.
 def is_better_than_baseline(lr_metrics: dict, baseline_metrics: dict) -> bool:
-    if lr_metrics["auc"] is None or baseline_metrics["auc"] is None:
-        return False
-    return lr_metrics["auc"] > baseline_metrics["auc"]
+    if lr_metrics["auc"] is not None and baseline_metrics["auc"] is not None:
+        if lr_metrics["auc"] <= baseline_metrics["auc"]:
+            return False
+    return lr_metrics["logLoss"] < baseline_metrics["logLoss"]
 
 
 def train_and_evaluate(X: pd.DataFrame, y: pd.Series) -> dict:
