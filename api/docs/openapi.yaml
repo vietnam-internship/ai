@@ -92,17 +92,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /internal/ai/branches/recommend:
+  /internal/ai/branches/recommendations:
     post:
       tags:
       - Branches
-      summary: 환전소(지점) 추천 - 거리/환율/재고/예약 스코어링
-      description: '반경 내 지점 후보를 스코어링해 상위 topN개를 반환한다. 가중치는 api.routers.train의
+      summary: 환전소(지점) 추천 비동기 연산 시작 (백엔드가 세션 생성 직후 호출)
+      description: '백엔드의 POST /branches/recommendations가 PENDING 세션을 만든 뒤 호출하는 콜백.
 
-        LOGISTIC_REGRESSION 학습 결과가 등록돼 있으면 그걸 쓰고, 없으면 Phase 1 고정 가중치로 폴백한다
+        즉시 202로 응답하고, 실제 랭킹 연산(거리/환율/재고/예약 스코어링)은 백그라운드로 수행한 뒤
 
-        (응답의 weightsSource로 어느 쪽이 쓰였는지 확인 가능).'
-      operationId: recommend_branches_internal_ai_branches_recommend_post
+        결과를 POST /internal/ai/recommendations/branches로 push한다.'
+      operationId: recommend_branches_internal_ai_branches_recommendations_post
       requestBody:
         content:
           application/json:
@@ -110,18 +110,21 @@ paths:
               $ref: '#/components/schemas/BranchRecommendationRequest'
         required: true
       responses:
-        '200':
+        '202':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BranchRecommendationResponse'
+                additionalProperties: true
+                type: object
+                title: Response Recommend Branches Internal Ai Branches Recommendations
+                  Post
         '422':
-          description: INSUFFICIENT_DATA — 통화를 찾을 수 없거나, 반경 내 재고/예약 가능 지점이 없음
+          description: Validation Error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                $ref: '#/components/schemas/HTTPValidationError'
   /internal/ai/currencies/{code}/backtest:
     post:
       tags:
@@ -226,122 +229,36 @@ components:
       description: predict가 백엔드 push 엔드포인트로부터 받은 응답을 그대로 echo한 것 (디버깅용).
     BranchRecommendationRequest:
       properties:
-        currencyCode:
-          type: string
-          title: Currencycode
-        isBuying:
-          type: boolean
-          title: Isbuying
-          default: true
-        userLat:
-          type: number
-          title: Userlat
-        userLng:
-          type: number
-          title: Userlng
-        slotDate:
-          type: string
-          format: date
-          title: Slotdate
-        slotTime:
-          type: string
-          format: time
-          title: Slottime
-        radiusKm:
-          anyOf:
-          - type: number
-          - type: 'null'
-          title: Radiuskm
-        topN:
-          anyOf:
-          - type: integer
-          - type: 'null'
-          title: Topn
-      type: object
-      required:
-      - currencyCode
-      - userLat
-      - userLng
-      - slotDate
-      - slotTime
-      title: BranchRecommendationRequest
-    BranchRecommendationResponse:
-      properties:
-        currencyCode:
-          type: string
-          title: Currencycode
-        weightsSource:
-          type: string
-          title: Weightssource
-          examples:
-          - logistic_regression
-          - default
-        branches:
-          items:
-            $ref: '#/components/schemas/BranchSummary'
-          type: array
-          title: Branches
-      type: object
-      required:
-      - currencyCode
-      - weightsSource
-      - branches
-      title: BranchRecommendationResponse
-    BranchScoreBreakdown:
-      properties:
-        distanceScore:
-          type: number
-          title: Distancescore
-        rateScore:
-          type: number
-          title: Ratescore
-        availabilityScore:
-          type: number
-          title: Availabilityscore
-        reservationScore:
-          type: number
-          title: Reservationscore
-      type: object
-      required:
-      - distanceScore
-      - rateScore
-      - availabilityScore
-      - reservationScore
-      title: BranchScoreBreakdown
-      description: RECOMMAND.feature.heuristic.score_candidates가 계산하는 개별 항목 점수 (PRD
-        §18 w1~w4).
-    BranchSummary:
-      properties:
-        branchId:
+        sessionId:
           type: integer
-          title: Branchid
-        branchName:
-          type: string
-          title: Branchname
+          title: Sessionid
         latitude:
           type: number
           title: Latitude
         longitude:
           type: number
           title: Longitude
-        isOpenNow:
-          type: boolean
-          title: Isopennow
-        score:
+        radiusKm:
           type: number
-          title: Score
-        scoreBreakdown:
-          $ref: '#/components/schemas/BranchScoreBreakdown'
+          title: Radiuskm
+        currency:
+          type: string
+          title: Currency
+        amount:
+          type: number
+          title: Amount
       type: object
       required:
-      - branchId
-      - branchName
+      - sessionId
       - latitude
       - longitude
-      - isOpenNow
-      - score
-      - scoreBreakdown
-      title: BranchSummary
+      - radiusKm
+      - currency
+      - amount
+      title: BranchRecommendationRequest
+      description: '백엔드가 POST /branches/recommendations 접수 직후 AI에 비동기로 보내는 연산 요청.
+
+        sessionId로 결과 콜백(POST /internal/ai/recommendations/branches)을 매칭한다.'
     ErrorResponse:
       properties:
         result:

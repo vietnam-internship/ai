@@ -1,4 +1,4 @@
-from datetime import date, datetime, time
+from datetime import date, datetime
 from enum import Enum
 from typing import Optional
 
@@ -103,17 +103,18 @@ class PredictAndPushResponse(BaseModel):
 
 
 class BranchRecommendationRequest(BaseModel):
-    currencyCode: str
-    isBuying: bool = True
-    userLat: float
-    userLng: float
-    slotDate: date
-    slotTime: time
-    radiusKm: Optional[float] = None
-    topN: Optional[int] = None
+    """백엔드가 POST /branches/recommendations 접수 직후 AI에 비동기로 보내는 연산 요청.
+    sessionId로 결과 콜백(POST /internal/ai/recommendations/branches)을 매칭한다."""
+
+    sessionId: int
+    latitude: float
+    longitude: float
+    radiusKm: float
+    currency: str
+    amount: float
 
 
-class BranchScoreBreakdown(BaseModel):
+class ScoreBreakdownPayload(BaseModel):
     """RECOMMAND.feature.heuristic.score_candidates가 계산하는 개별 항목 점수 (PRD §18 w1~w4)."""
 
     distanceScore: float
@@ -122,17 +123,15 @@ class BranchScoreBreakdown(BaseModel):
     reservationScore: float
 
 
-class BranchSummary(BaseModel):
+class RankedBranchItem(BaseModel):
     branchId: int
-    branchName: str
-    latitude: float
-    longitude: float
-    isOpenNow: bool
+    ranking: int
     score: float
-    scoreBreakdown: BranchScoreBreakdown
+    breakdown: ScoreBreakdownPayload
 
 
-class BranchRecommendationResponse(BaseModel):
-    currencyCode: str
-    weightsSource: str = Field(examples=["logistic_regression", "default"])
-    branches: list[BranchSummary]
+class BranchRecommendationPushRequest(BaseModel):
+    """백엔드 openapi.yaml의 BranchRecommendationPushRequest와 1:1 대응 (그대로 백엔드에 push됨)."""
+
+    sessionId: int
+    rankedBranches: list[RankedBranchItem]
