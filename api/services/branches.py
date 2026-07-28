@@ -35,7 +35,7 @@ def run_branch_recommendation(request: BranchRecommendationRequest) -> None:
     from RECOMMAND.feature.heuristic import score_candidates
 
     slot_date, slot_time = _current_slot(datetime.now())
-    candidates = fetch_branch_candidates(request.currency, str(slot_date), slot_time)
+    candidates = fetch_branch_candidates(request.currencyCode, str(slot_date), slot_time)
 
     ranked_items: list[RankedBranchItem] = []
     if not candidates.empty:
