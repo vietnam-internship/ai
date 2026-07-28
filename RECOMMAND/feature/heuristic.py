@@ -10,12 +10,12 @@ RESERVATION_STOCK_FLOOR = 0.05
 DEFAULT_RADIUS_KM = 5.0
 DEFAULT_TOP_N = 10
 
-# 초기 수동 가중치 (PRD §18: w1=거리, w2=환율, w4=예약)
-# w3(재고/availability)는 실제 백엔드 스키마에 원본 데이터가 없어 제외 — 3요소로 재분배.
+# 초기 수동 가중치 (PRD §18: w1=거리, w2=환율, w3=재고, w4=예약)
 DEFAULT_WEIGHTS = {
-    "distance": 0.4,
-    "rate": 0.4,
-    "reservation": 0.2,
+    "distance": 0.35,
+    "rate": 0.35,
+    "availability": 0.2,
+    "reservation": 0.1,
 }
 
 
@@ -95,6 +95,12 @@ def is_open_now(
     return df[branch_col].map(is_open.astype(float)).fillna(0.0)
 
 
+#지점의 통화 재고(currency_remaining)를 후보군 내 min-max 정규화. 재고가 많을수록 1에 가깝다.
+#PRD §18 total_score의 w3(재고, ScoreBreakdown.availabilityScore)에 해당.
+def availability_score(df: pd.DataFrame, stock_col: str = "currency_remaining") -> pd.Series:
+    return normalize_min_max(df[stock_col].fillna(0), higher_is_better=True)
+
+
 #예약 전용 재고가 남아있으면 1, 소진되면 RESERVATION_STOCK_FLOOR에 가깝게. 하드 0을 피해 가중합에서 완전히 죽지 않게 한다.
 def reservation_score(
     df: pd.DataFrame,
@@ -123,7 +129,7 @@ def score_candidates(
     df = df.copy()
 
     # radius_km 밖 후보는 스코어링 전에 제외 (PRD §18 검색 반경).
-    # 이후 min-max 정규화(rate_score)가 이 반경 내 후보군만 대상으로 하도록 필터를 먼저 적용한다.
+    # 이후 min-max 정규화(rate_score, availability_score)가 이 반경 내 후보군만 대상으로 하도록 필터를 먼저 적용한다.
     distance_km = calculate_distance_km(df, user_lat, user_lng)
     df = df[distance_km <= radius_km].copy()
     if df.empty:
@@ -132,12 +138,14 @@ def score_candidates(
 
     df["distance_score"] = np.exp(-distance_km / DISTANCE_DECAY_TAU_KM)
     df["rate_score"] = rate_score(df, is_buying=is_buying)
+    df["availability_score"] = availability_score(df)
     df["reservation_score"] = reservation_score(df)
     df["is_open_now"] = is_open_now(df, operating_hours_df, now=now)
 
     df["score"] = (
         weights["distance"] * df["distance_score"]
         + weights["rate"] * df["rate_score"]
+        + weights["availability"] * df["availability_score"]
         + weights["reservation"] * df["reservation_score"]
     )
     # total_score 내림차순, 동점 시 distanceScore 우선 (PRD §18: 타이브레이커)
