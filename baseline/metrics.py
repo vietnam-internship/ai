@@ -22,7 +22,7 @@ def mape(df: Optional[pd.DataFrame] = None):
     return ape.mean() * 100
 
 
-#|실제 관측값 - 모델의 예측값| 합
+#|실제 관측값 - 모델의 예측값| 의 평균
 def mae(df: Optional[pd.DataFrame] = None):
     actual, predicted = load_actual_and_predicted(df)
-    return (actual - predicted).abs().sum()
+    return (actual - predicted).abs().mean()
