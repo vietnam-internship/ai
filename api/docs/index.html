@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TravelX AI Internal Service API 명세서</title>
+  <style>
+    body { margin: 0; padding: 0; }
+    #loading {
+      display: flex; align-items: center; justify-content: center;
+      height: 100vh; font-family: -apple-system, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <div id="redoc-container"><div id="loading">API 명세서 로딩 중…</div></div>
+  <script src="https://cdn.redoc.ly/redoc/latest/bundles/redoc.standalone.js"></script>
+  <script>
+    Redoc.init(
+      './openapi.yaml',
+      {
+        theme: {
+          colors: { primary: { main: '#1a56db' } },
+          typography: {
+            fontFamily: "-apple-system, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif",
+            headings: { fontFamily: "-apple-system, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif" }
+          }
+        },
+        expandResponses: '200,201',
+        pathInMiddlePanel: true,
+        requiredPropsFirst: true
+      },
+      document.getElementById('redoc-container')
+    );
+  </script>
+</body>
+</html>

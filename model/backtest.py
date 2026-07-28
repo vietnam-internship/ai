@@ -28,11 +28,18 @@ def backtest_currency(
     actual, predicted = walk_forward_validate(X, y, train_window=train_window)
     error = actual - predicted
 
+    #방향(부호) 일치 여부 = "타이밍 추천이 맞았는가"의 신호 단위 정확도.
+    total_signals = len(actual)
+    correct_signals = int((np.sign(actual) == np.sign(predicted)).sum())
+
     return {
-        "n_predictions": len(actual),
+        "n_predictions": total_signals,
         "mae": float(error.abs().mean()),
         "rmse": float(np.sqrt((error**2).mean())),
         "baseline_mae": baseline_mae(df),
+        "totalSignals": total_signals,
+        "correctSignals": correct_signals,
+        "accuracyRate": correct_signals / total_signals if total_signals else None,
     }
 
 
@@ -59,7 +66,7 @@ def run_backtest(
             continue
 
     if not rows:
-        raise ValueError("백테스트할 수 있는 통화가 없습니다 (데이터가 충분하지 않습니다).")
+        raise ValueError("No currency available for backtesting (not enough data).")
 
     result = pd.DataFrame.from_dict(rows, orient="index")
     result.index.name = "cur_unit"

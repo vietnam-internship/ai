@@ -3,7 +3,7 @@ from typing import Optional
 import pandas as pd
 
 from data_preprocessing.preprocess import fetch_and_fill_exchange_rate_timeseries
-from baseline import build_baseline_dataset
+from baseline.baseline import build_baseline_dataset
 
 
 def load_actual_and_predicted(df: Optional[pd.DataFrame] = None):

@@ -51,7 +51,7 @@ def build_diff_dataset(
 ) -> Tuple[pd.DataFrame, pd.Series]:
     
     if check_row_num(df, window=window, horizon=horizon) is None:
-        raise ValueError("데이터가 충분하지 않습니다.")
+        raise ValueError("Not enough data.")
 
     #feature 생성
     df = build_features(df, window=window, lags=lags)
@@ -87,7 +87,7 @@ def walk_forward_validate(
 ) -> Tuple[pd.Series, pd.Series]:
     
     if len(X) <= train_window:
-        raise ValueError("데이터가 충분하지 않습니다.")
+        raise ValueError("Not enough data.")
 
     actual_values = []
     predicted_values = []
@@ -130,7 +130,7 @@ def build_and_walk_forward_validate(
         predicted_parts.append(predicted)
 
     if not actual_parts:
-        raise ValueError("데이터가 충분하지 않습니다.")
+        raise ValueError("Not enough data.")
 
     return (
         pd.concat(actual_parts, ignore_index=True),
@@ -167,7 +167,7 @@ def _fit_latest_window_model(
 
 
     if not X_parts:
-        raise ValueError("데이터가 충분하지 않습니다.")
+        raise ValueError("Not enough data.")
 
     return train_lr_model(pd.concat(X_parts, ignore_index=True), pd.concat(y_parts, ignore_index=True))
 

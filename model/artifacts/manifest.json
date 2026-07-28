@@ -1,0 +1,10 @@
+{
+  "LINEAR_REGRESSION:USD": {
+    "version": "lr_USD_20260727.joblib",
+    "updatedAt": "2026-07-27T08:24:49.691407+00:00"
+  },
+  "LINEAR_REGRESSION:VND": {
+    "version": "lr_VND_20260727.joblib",
+    "updatedAt": "2026-07-27T07:27:48.731782+00:00"
+  }
+}

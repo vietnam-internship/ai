@@ -1,0 +1,25 @@
+services:
+  mysql-test:
+    image: mysql:8.0
+    container_name: travelx-ai-test-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: travelx_test
+      MYSQL_USER: travelx
+      MYSQL_PASSWORD: travelx_pw
+    ports:
+      # 로컬에 이미 3306을 쓰는 MySQL이 있을 수 있어 3307로 매핑.
+      # 바꾸면 .env의 DB_PORT도 같이 바꿀 것.
+      - "3307:3306"
+    volumes:
+      - ./init:/docker-entrypoint-initdb.d:ro
+      - travelx_test_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpass"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  travelx_test_data:

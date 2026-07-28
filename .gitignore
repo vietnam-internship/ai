@@ -6,3 +6,4 @@ tests/
 .pytest_cache
 requirements-dev.txt
 exim_fetch.py
+docker-test/

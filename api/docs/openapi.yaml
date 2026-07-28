@@ -1,0 +1,471 @@
+openapi: 3.1.0
+info:
+  title: TravelX AI Internal Service
+  description: Internal service that trains/serves the exchange rate timing recommendation
+    model. The AI Internal tags documented by the backend (recommendations/signals,
+    etc.) are the endpoints this service calls when pushing to the backend; the endpoints
+    defined here are the API this service exposes itself.
+  version: 0.1.0
+paths:
+  /internal/ai/train:
+    post:
+      tags:
+      - Train
+      summary: Train/lookup model by strategy type
+      description: "Behavior depends on strategyType.\n\n- LINEAR_REGRESSION: currencyCode\
+        \ required. Trains an LR model and only saves it as\n  .joblib + updates the\
+        \ manifest (source: \"lr\") if it beats the baseline. Otherwise\n  returns\
+        \ the skip reason without saving an artifact.\n- BASE_LINE: currencyCode required.\
+        \ Only computes and returns MAE/MAPE for the 30-day\n  moving average rule\
+        \ (no artifact to save).\n- LOGISTIC_REGRESSION: branch recommendation Phase\
+        \ 2. Once click/conversion logs reach\n  MIN_BRANCH_FEEDBACK_ROWS, trains\
+        \ w1~w4 weights via logistic regression and saves them.\n  Before that, returns\
+        \ 422 INSUFFICIENT_DATA advising to keep using the Phase 1 fixed\n  rule-based\
+        \ weights."
+      operationId: train_internal_ai_train_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrainRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrainResult'
+        '422':
+          description: INSUFFICIENT_DATA — currencyCode missing, no exchange rate
+            history, or LOGISTIC_REGRESSION click/conversion logs below the minimum
+            count
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/ai/health:
+    get:
+      tags:
+      - Health
+      summary: Check service status and registered model versions
+      description: 'Returns the list of "currently serving version" per strategy type
+        x currency (scope)
+
+        registered in model/artifacts/manifest.json. A plain lookup that runs no actual
+        inference.'
+      operationId: health_internal_ai_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  /internal/ai/currencies/{code}/predict:
+    post:
+      tags:
+      - Predict
+      summary: Compute timing recommendation and push it to the backend
+      description: 'Computes the recommendation (direction/rationale/confidence) and
+        signals (moving
+
+        average/std) from the exchange rate history of currency `code`, then forwards
+        them as-is
+
+        to the backend''s AI Internal push endpoints (POST .../recommendations, POST
+        .../signals).
+
+        Automatically falls back to baseline (30-day moving average) serving if no
+        LR model is
+
+        registered.'
+      operationId: predict_and_push_internal_ai_currencies__code__predict_post
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Code
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PredictAndPushResponse'
+        '422':
+          description: INSUFFICIENT_DATA — no exchange rate history, or below the
+            minimum window/horizon data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: MODEL_UNAVAILABLE — unexpected failure during inference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /internal/ai/branches/recommendations:
+    post:
+      tags:
+      - Branches
+      summary: Start async branch recommendation computation (called by the backend
+        right after session creation)
+      description: 'Callback invoked by the backend''s POST /branches/recommendations
+        after it creates a
+
+        PENDING session. Responds with 202 immediately, runs the actual ranking computation
+
+        (distance/rate/availability/reservation scoring) in the background, then pushes
+        the
+
+        result to POST /internal/ai/recommendations/branches.'
+      operationId: recommend_branches_internal_ai_branches_recommendations_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BranchRecommendationRequest'
+        required: true
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Recommend Branches Internal Ai Branches Recommendations
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /internal/ai/currencies/{code}/backtest:
+    post:
+      tags:
+      - Backtest
+      summary: Run LR model walk-forward backtest and push the result to the backend
+      description: 'Runs walk-forward validation of the LR model against actual exchange
+        rate history in
+
+        the DB, converts direction (sign) agreement into signal-level accuracy
+
+        (totalSignals/correctSignals/accuracyRate), and pushes it to the backend''s
+
+        POST /internal/ai/currencies/{code}/backtests.'
+      operationId: backtest_internal_ai_currencies__code__backtest_post
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Code
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Backtest Internal Ai Currencies  Code  Backtest Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+components:
+  schemas:
+    AiRecommendationCreateRequest:
+      properties:
+        signalIds:
+          items:
+            type: integer
+          type: array
+          title: Signalids
+        recommendation:
+          $ref: '#/components/schemas/RecommendationEnum'
+        rationale:
+          type: string
+          title: Rationale
+        confidenceScore:
+          type: number
+          title: Confidencescore
+        modelVersion:
+          type: string
+          title: Modelversion
+        expiresAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expiresat
+      type: object
+      required:
+      - recommendation
+      - rationale
+      - confidenceScore
+      - modelVersion
+      title: AiRecommendationCreateRequest
+      description: Matches AiRecommendationCreateRequest in openapi.yaml 1:1 (pushed
+        to the backend as-is).
+    AiSignalCreateRequest:
+      properties:
+        signalType:
+          $ref: '#/components/schemas/SignalTypeEnum'
+        windowDays:
+          type: integer
+          title: Windowdays
+        value:
+          type: number
+          title: Value
+      type: object
+      required:
+      - signalType
+      - windowDays
+      - value
+      title: AiSignalCreateRequest
+      description: Matches AiSignalCreateRequest in openapi.yaml 1:1 (pushed to the
+        backend as-is).
+    BackendPushResult:
+      properties:
+        recommendation:
+          additionalProperties: true
+          type: object
+          title: Recommendation
+        signals:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Signals
+      type: object
+      required:
+      - recommendation
+      - signals
+      title: BackendPushResult
+      description: Echoes back the response predict got from the backend push endpoints
+        (for debugging).
+    BranchRecommendationRequest:
+      properties:
+        sessionId:
+          type: integer
+          title: Sessionid
+        latitude:
+          type: number
+          title: Latitude
+        longitude:
+          type: number
+          title: Longitude
+        radiusKm:
+          type: number
+          title: Radiuskm
+        currency:
+          type: string
+          title: Currency
+        amount:
+          type: number
+          title: Amount
+      type: object
+      required:
+      - sessionId
+      - latitude
+      - longitude
+      - radiusKm
+      - currency
+      - amount
+      title: BranchRecommendationRequest
+      description: 'The async computation request the backend sends to AI right after
+        accepting
+
+        POST /branches/recommendations. sessionId matches it to the result callback
+
+        (POST /internal/ai/recommendations/branches).'
+    ErrorResponse:
+      properties:
+        result:
+          type: string
+          title: Result
+          examples:
+          - FAIL
+        code:
+          type: string
+          title: Code
+          examples:
+          - INSUFFICIENT_DATA
+          - MODEL_UNAVAILABLE
+        message:
+          type: string
+          title: Message
+      type: object
+      required:
+      - result
+      - code
+      - message
+      title: ErrorResponse
+      description: The shape main.py's handlers serialize api.errors custom exceptions
+        into.
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    HealthResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+        models:
+          items:
+            $ref: '#/components/schemas/ModelStatus'
+          type: array
+          title: Models
+      type: object
+      required:
+      - status
+      - models
+      title: HealthResponse
+    ModelStatus:
+      properties:
+        strategyType:
+          type: string
+          title: Strategytype
+        scope:
+          type: string
+          title: Scope
+        version:
+          type: string
+          title: Version
+        updatedAt:
+          type: string
+          title: Updatedat
+      type: object
+      required:
+      - strategyType
+      - scope
+      - version
+      - updatedAt
+      title: ModelStatus
+    PredictAndPushResponse:
+      properties:
+        currencyCode:
+          type: string
+          title: Currencycode
+        recommendation:
+          $ref: '#/components/schemas/AiRecommendationCreateRequest'
+        signals:
+          items:
+            $ref: '#/components/schemas/AiSignalCreateRequest'
+          type: array
+          title: Signals
+        backend:
+          $ref: '#/components/schemas/BackendPushResult'
+      type: object
+      required:
+      - currencyCode
+      - recommendation
+      - signals
+      - backend
+      title: PredictAndPushResponse
+    RecommendationEnum:
+      type: string
+      enum:
+      - INCREASING
+      - NEUTRAL
+      - DECREASING
+      title: RecommendationEnum
+    SignalTypeEnum:
+      type: string
+      enum:
+      - MA
+      - RSI
+      - MACD
+      - STD
+      title: SignalTypeEnum
+    StrategyType:
+      type: string
+      enum:
+      - LINEAR_REGRESSION
+      - BASE_LINE
+      - LOGISTIC_REGRESSION
+      title: StrategyType
+    TrainRequest:
+      properties:
+        strategyType:
+          $ref: '#/components/schemas/StrategyType'
+        currencyCode:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Currencycode
+      type: object
+      required:
+      - strategyType
+      title: TrainRequest
+    TrainResult:
+      properties:
+        strategyType:
+          $ref: '#/components/schemas/StrategyType'
+        scope:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Scope
+        modelVersion:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Modelversion
+        source:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Source
+        metrics:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Metrics
+      type: object
+      required:
+      - strategyType
+      title: TrainResult
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError
