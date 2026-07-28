@@ -103,12 +103,11 @@ def _train_baseline(currency_code: str | None) -> TrainResult:
 
 def _train_branch_recommendation_weights() -> TrainResult:
     """지점 추천 Phase 2: branch_recommendation_feedback 로그로 w1~w4(거리/환율/재고/예약)
-    가중치를 로지스틱 리그레션으로 학습한다. 부호가 반대인 계수도 있을 수 있어 절댓값을 취한 뒤
-    합이 1이 되도록 정규화한다 (score_candidates의 가중합 형식과 맞추기 위함)."""
-    import numpy as np
-    from sklearn.linear_model import LogisticRegression
-
+    가중치를 로지스틱 리그레션으로 학습한다. RECOMMAND.model.weight_model.build_and_train_with_fallback을
+    통해 baseline(DEFAULT_WEIGHTS)보다 못하거나 계수가 음수면 학습 결과를 버리고 Phase 1 고정
+    가중치를 계속 사용한다 (model.lr_model의 LR-or-baseline 폴백과 동일한 패턴)."""
     from RECOMMAND.feature.data_fetch import fetch_branch_recommendation_logs
+    from RECOMMAND.model.weight_model import build_and_train_with_fallback
 
     logs = fetch_branch_recommendation_logs()
     if logs.empty or len(logs) < MIN_BRANCH_FEEDBACK_ROWS:
@@ -117,19 +116,23 @@ def _train_branch_recommendation_weights() -> TrainResult:
             f"(minimum {MIN_BRANCH_FEEDBACK_ROWS} rows required). Keep using the Phase 1 rule-based weights."
         )
 
-    feature_cols = ["distance_score", "rate_score", "availability_score", "reservation_score"]
-    clf = LogisticRegression()
-    clf.fit(logs[feature_cols], logs["is_selected"])
+    result = build_and_train_with_fallback(logs=logs, min_samples=MIN_BRANCH_FEEDBACK_ROWS)
 
-    raw_weights = np.abs(clf.coef_[0])
-    normalized = raw_weights / raw_weights.sum()
-    weights = dict(zip(["distance", "rate", "availability", "reservation"], normalized.tolist()))
+    if result["source"] != "logistic_regression":
+        # 계수가 음수이거나 baseline보다 못해서 학습을 스킵한 경우. 아티팩트는 저장하지 않고
+        # Phase 1 고정 가중치를 계속 쓴다.
+        return TrainResult(
+            strategyType=StrategyType.LOGISTIC_REGRESSION,
+            scope="global",
+            source=result["source"],
+            metrics={"reason": result["reason"], "trainRows": result["trainRows"], **result["metrics"]},
+        )
 
-    entry = save_branch_weights(weights, scope="global")
+    entry = save_branch_weights(result["weights"], scope="global")
     return TrainResult(
         strategyType=StrategyType.LOGISTIC_REGRESSION,
         scope="global",
         modelVersion=entry["version"],
         source="logistic_regression",
-        metrics={"weights": weights, "trainRows": int(len(logs))},
+        metrics={"weights": result["weights"], "trainRows": result["trainRows"], **result["metrics"]},
     )
