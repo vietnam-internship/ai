@@ -70,8 +70,8 @@ def build_timing_recommendation(
 
     pct_change = (row["predicted_rate"] - row["current_rate"]) / row["current_rate"] * 100
     rationale = (
-        f"{WINDOW}일 이동평균/표준편차 기반 {'LR' if source == 'lr' else 'baseline'} 예측 결과, "
-        f"현재 {row['current_rate']:.2f} 대비 {pct_change:+.2f}% 변동 예상"
+        f"Based on {WINDOW}-day moving average/std ({'LR' if source == 'lr' else 'baseline'} model), "
+        f"rate expected to change {pct_change:+.2f}% from current {row['current_rate']:.2f}"
     )
 
     recommendation_payload = AiRecommendationCreateRequest(
