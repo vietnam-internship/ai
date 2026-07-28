@@ -13,7 +13,7 @@ from api.schemas import (
 def _headers() -> dict:
     headers = {}
     if INTERNAL_AI_TOKEN:
-        headers["X-Internal-Token"] = INTERNAL_AI_TOKEN
+        headers["Authorization"] = f"Bearer {INTERNAL_AI_TOKEN}"
     return headers
 
 
