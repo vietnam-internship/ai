@@ -108,7 +108,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /internal/ai/branches/recommendations:
+  /recommend/branches:
     post:
       tags:
       - Branches
@@ -117,13 +117,13 @@ paths:
       description: 'Callback invoked by the backend''s POST /branches/recommendations
         after it creates a
 
-        PENDING session. Responds with 202 immediately, runs the actual ranking computation
+        PENDING session (server''s AiRecommendationClient.BRANCH_RANKING_PATH). Responds
+        with 202
 
-        (distance/rate/availability/reservation scoring) in the background, then pushes
-        the
+        immediately, runs the actual ranking computation (distance/rate/availability/reservation
 
-        result to POST /internal/ai/recommendations/branches.'
-      operationId: recommend_branches_internal_ai_branches_recommendations_post
+        scoring) in the background, then pushes the result to POST /internal/ai/recommendations/branches.'
+      operationId: recommend_branches_recommend_branches_post
       requestBody:
         content:
           application/json:
@@ -138,8 +138,7 @@ paths:
               schema:
                 additionalProperties: true
                 type: object
-                title: Response Recommend Branches Internal Ai Branches Recommendations
-                  Post
+                title: Response Recommend Branches Recommend Branches Post
         '422':
           description: Validation Error
           content:
@@ -268,9 +267,9 @@ components:
         radiusKm:
           type: number
           title: Radiuskm
-        currency:
+        currencyCode:
           type: string
-          title: Currency
+          title: Currencycode
         amount:
           type: number
           title: Amount
@@ -280,7 +279,7 @@ components:
       - latitude
       - longitude
       - radiusKm
-      - currency
+      - currencyCode
       - amount
       title: BranchRecommendationRequest
       description: 'The async computation request the backend sends to AI right after

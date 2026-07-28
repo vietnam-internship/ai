@@ -111,7 +111,7 @@ class BranchRecommendationRequest(BaseModel):
     latitude: float
     longitude: float
     radiusKm: float
-    currency: str
+    currencyCode: str
     amount: float
 
 
