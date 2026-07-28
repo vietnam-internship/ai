@@ -6,7 +6,6 @@ infra 이슈에서 정한 네이밍: {prefix}_{scope}_{YYYYMMDD}.joblib
 """
 import json
 from datetime import date, datetime, timezone
-from pathlib import Path
 from typing import Optional
 
 from api.config import MODEL_ARTIFACT_DIR
@@ -36,17 +35,18 @@ def artifact_filename(prefix: str, scope: str, on: Optional[date] = None, ext: s
 
 def save_lr_model(model, scope: str) -> dict:
     """LR 모델을 .joblib로 저장하고 manifest의 LINEAR_REGRESSION:{scope} 항목을 갱신한다.
-    이전 아티팩트 파일은 지우지 않는다 (롤백 시 필요)."""
+    이전 아티팩트 파일은 지우지 않는다 (롤백 시 필요).
+
+    manifest엔 절대경로가 아니라 파일명(version)만 저장한다 — MODEL_ARTIFACT_DIR 기준
+    상대 위치이므로 컨테이너/다른 머신으로 옮겨도(볼륨 마운트 경로가 바뀌어도) 깨지지 않는다."""
     from model.inference import save_model
 
     MODEL_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     filename = artifact_filename("lr", scope)
-    path = MODEL_ARTIFACT_DIR / filename
-    save_model(model, str(path))
+    save_model(model, str(MODEL_ARTIFACT_DIR / filename))
 
     entry = {
         "version": filename,
-        "path": str(path),
         "updatedAt": datetime.now(timezone.utc).isoformat(),
     }
     manifest = _read_manifest()
@@ -63,7 +63,8 @@ def load_lr_model(scope: str):
     entry = _read_manifest().get(_manifest_key("LINEAR_REGRESSION", scope))
     if entry is None:
         return None, None
-    return load_model(entry["path"]), entry["version"]
+    path = MODEL_ARTIFACT_DIR / entry["version"]
+    return load_model(str(path)), entry["version"]
 
 
 def save_branch_weights(weights: dict, scope: str = "global") -> dict:
@@ -72,12 +73,10 @@ def save_branch_weights(weights: dict, scope: str = "global") -> dict:
     전역(global) 가중치라 scope 기본값을 "global"로 둔다."""
     MODEL_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     filename = artifact_filename("blr", scope, ext="json")
-    path = MODEL_ARTIFACT_DIR / filename
-    path.write_text(json.dumps(weights, indent=2))
+    (MODEL_ARTIFACT_DIR / filename).write_text(json.dumps(weights, indent=2))
 
     entry = {
         "version": filename,
-        "path": str(path),
         "updatedAt": datetime.now(timezone.utc).isoformat(),
     }
     manifest = _read_manifest()
@@ -92,7 +91,7 @@ def load_branch_weights(scope: str = "global") -> Optional[dict]:
     entry = _read_manifest().get(_manifest_key("LOGISTIC_REGRESSION", scope))
     if entry is None:
         return None
-    return json.loads(Path(entry["path"]).read_text())
+    return json.loads((MODEL_ARTIFACT_DIR / entry["version"]).read_text())
 
 
 def list_model_versions() -> list[dict]:
