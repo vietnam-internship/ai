@@ -43,6 +43,18 @@ class AiRecommendationCreateRequest(BaseModel):
     expiresAt: Optional[datetime] = None
 
 
+class BacktestCreateRequest(BaseModel):
+    """백엔드 openapi.yaml의 BacktestCreateRequest와 1:1 대응 (그대로 백엔드에 push됨)."""
+
+    currencyId: int
+    strategyType: StrategyType
+    periodStart: date
+    periodEnd: date
+    totalSignals: int
+    correctSignals: int
+    accuracyRate: float
+
+
 class TrainRequest(BaseModel):
     strategyType: StrategyType
     currencyCode: Optional[str] = None

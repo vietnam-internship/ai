@@ -2,7 +2,7 @@
 import httpx
 
 from api.config import BACKEND_BASE_URL, BACKEND_REQUEST_TIMEOUT_SECONDS, INTERNAL_AI_TOKEN
-from api.schemas import AiRecommendationCreateRequest, AiSignalCreateRequest
+from api.schemas import AiRecommendationCreateRequest, AiSignalCreateRequest, BacktestCreateRequest
 
 
 def _headers() -> dict:
@@ -38,3 +38,15 @@ def push_signals(currency_code: str, signals: list[AiSignalCreateRequest]) -> li
         response.raise_for_status()
         results.append(response.json())
     return results
+
+
+def push_backtest_result(currency_code: str, payload: BacktestCreateRequest) -> dict:
+    url = f"{BACKEND_BASE_URL}/internal/ai/currencies/{currency_code}/backtests"
+    response = httpx.post(
+        url,
+        json=payload.model_dump(mode="json"),
+        headers=_headers(),
+        timeout=BACKEND_REQUEST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    return response.json()

@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from api.errors import InsufficientDataError, ModelUnavailableError
-from api.routers import branches, health, predict, train
+from api.routers import backtest, branches, health, predict, train
 
 app = FastAPI(
     title="TravelX AI Internal Service",
@@ -19,6 +19,7 @@ app.include_router(train.router)
 app.include_router(health.router)
 app.include_router(predict.router)
 app.include_router(branches.router)
+app.include_router(backtest.router)
 
 
 @app.exception_handler(InsufficientDataError)
