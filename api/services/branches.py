@@ -10,9 +10,13 @@ Phase 2(클릭/전환 로그 기반 로지스틱 리그레션 가중치 학습, 
 RECOMMAND.feature.heuristic.DEFAULT_WEIGHTS 고정값으로 자동 폴백한다 (services.timing의
 LR-or-baseline 폴백과 동일한 패턴).
 """
+import logging
+import time
 from datetime import date, datetime
 
 from api.model_registry import load_branch_weights
+
+logger = logging.getLogger(__name__)
 from api.schemas import (
     BranchRecommendationPushRequest,
     BranchRecommendationRequest,
@@ -34,48 +38,61 @@ def run_branch_recommendation(request: BranchRecommendationRequest) -> None:
     from RECOMMAND.feature.data_fetch import fetch_branch_candidates, fetch_branch_operating_hours
     from RECOMMAND.feature.heuristic import score_candidates
 
-    slot_date, slot_time = _current_slot(datetime.now())
-    candidates = fetch_branch_candidates(request.currencyCode, str(slot_date), slot_time)
-    if candidates.empty:
-        # 백엔드 콜백 스펙상 rankedBranches는 최소 1개가 필요하다. 후보가 없으면 콜백을 보내지
-        # 않고 세션을 PENDING으로 남겨, 프론트 폴링이 타임아웃(30초)으로 처리하도록 둔다
-        # (연동 명세서에 문서화된 권장 실패 처리 방식).
-        return
+    t0 = time.time()
+    logger.info("[추천 시작] sessionId=%s, currency=%s, lat=%s, lng=%s, radiusKm=%s",
+                request.sessionId, request.currencyCode, request.latitude, request.longitude, request.radiusKm)
 
-    operating_hours = fetch_branch_operating_hours(candidates["branch_id"].tolist())
-    learned_weights = load_branch_weights(scope="global")
+    try:
+        slot_date, slot_time = _current_slot(datetime.now())
+        candidates = fetch_branch_candidates(request.currencyCode, str(slot_date), slot_time)
+        logger.info("[DB 조회 완료] sessionId=%s, 후보 수=%d, 소요=%.2fs",
+                    request.sessionId, len(candidates), time.time() - t0)
 
-    scored = score_candidates(
-        candidates,
-        operating_hours,
-        user_lat=request.latitude,
-        user_lng=request.longitude,
-        # amount은 환전 "희망 금액(외화 기준)" — 즉 KRW로 외화를 사는 시나리오라고 가정.
-        # 요청 스키마에 매수/매도 구분 필드가 없어 is_buying=True로 고정.
-        is_buying=True,
-        weights=learned_weights,
-        radius_km=request.radiusKm,
-    )
-    if scored.empty:
-        # radius_km 밖으로 전부 필터링된 경우 (candidates는 있었지만 반경 내엔 없음) - 동일하게
-        # 콜백 없이 PENDING 타임아웃으로 처리.
-        return
+        if candidates.empty:
+            logger.warning("[후보 없음] sessionId=%s, currency=%s, slot=%s %s — 콜백 생략, PENDING 유지",
+                           request.sessionId, request.currencyCode, slot_date, slot_time)
+            return
 
-    ranked_items = [
-        RankedBranchItem(
-            branchId=int(row["branch_id"]),
-            ranking=idx + 1,
-            score=float(row["score"]),
-            breakdown=ScoreBreakdownPayload(
-                distanceScore=float(row["distance_score"]),
-                rateScore=float(row["rate_score"]),
-                availabilityScore=float(row["availability_score"]),
-                reservationScore=float(row["reservation_score"]),
-            ),
+        operating_hours = fetch_branch_operating_hours(candidates["branch_id"].tolist())
+        learned_weights = load_branch_weights(scope="global")
+
+        scored = score_candidates(
+            candidates,
+            operating_hours,
+            user_lat=request.latitude,
+            user_lng=request.longitude,
+            is_buying=True,
+            weights=learned_weights,
+            radius_km=request.radiusKm,
         )
-        for idx, row in scored.reset_index(drop=True).iterrows()
-    ]
+        logger.info("[스코어링 완료] sessionId=%s, 반경 내 지점=%d, 소요=%.2fs",
+                    request.sessionId, len(scored), time.time() - t0)
 
-    push_branch_recommendation(
-        BranchRecommendationPushRequest(sessionId=request.sessionId, rankedBranches=ranked_items)
-    )
+        if scored.empty:
+            logger.warning("[반경 내 후보 없음] sessionId=%s, radiusKm=%s — 콜백 생략",
+                           request.sessionId, request.radiusKm)
+            return
+
+        ranked_items = [
+            RankedBranchItem(
+                branchId=int(row["branch_id"]),
+                ranking=idx + 1,
+                score=float(row["score"]),
+                breakdown=ScoreBreakdownPayload(
+                    distanceScore=float(row["distance_score"]),
+                    rateScore=float(row["rate_score"]),
+                    availabilityScore=float(row["availability_score"]),
+                    reservationScore=float(row["reservation_score"]),
+                ),
+            )
+            for idx, row in scored.reset_index(drop=True).iterrows()
+        ]
+
+        push_branch_recommendation(
+            BranchRecommendationPushRequest(sessionId=request.sessionId, rankedBranches=ranked_items)
+        )
+        logger.info("[콜백 push 완료] sessionId=%s, 총 소요=%.2fs", request.sessionId, time.time() - t0)
+
+    except Exception as e:
+        logger.error("[추천 실패] sessionId=%s, 총 소요=%.2fs, error=%s",
+                     request.sessionId, time.time() - t0, e, exc_info=True)
